@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "sshclaude"
+version = "0.1.0"
+description = "Zero-Install Browser SSH for Humans"
+authors = ["SSHCLAUDE Inc."]
+packages = [{ include = "sshclaude", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+click = "^8.1"
+rich = "^13.0"
+pyyaml = "^6.0"
+requests = "^2.32"
+tqdm = "^4.66"
+
+[tool.poetry.scripts]
+sshclaude = "sshclaude.cli:cli"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
