@@ -14,10 +14,13 @@ requests = "^2.32"
 tqdm = "^4.66"
 fastapi = "^0.110"
 uvicorn = "^0.27"
+SQLAlchemy = "^2.0"
+mangum = "^0.17"
 
 [tool.poetry.scripts]
 sshclaude = "sshclaude.cli:cli"
 sshclaude-api = "sshclaude.api:main"
+sshclaude-api-lambda = "sshclaude.api:lambda_handler"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

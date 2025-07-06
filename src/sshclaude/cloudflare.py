@@ -106,3 +106,13 @@ def delete_access_app(app_id: str) -> None:
         timeout=30,
     )
     resp.raise_for_status()
+
+
+def rotate_host_key(tunnel_id: str) -> None:
+    """Trigger host key rotation via Cloudflare API."""
+    resp = requests.post(
+        f"{API_BASE}/tunnels/{tunnel_id}/hostkey/rotate",
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()

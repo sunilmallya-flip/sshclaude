@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel
 
 from . import cloudflare
+from .db import Provision, LoginEvent, get_session, init_db
 
-PROVISIONED: dict[str, dict[str, str]] = {}
-LOGIN_HISTORY: dict[str, list[dict[str, str]]] = {}
+API_TOKEN = os.getenv("API_TOKEN")
+
+
+def verify_token(authorization: str = Header("")) -> None:
+    if API_TOKEN and authorization != f"Bearer {API_TOKEN}":
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 class ProvisionRequest(BaseModel):
@@ -20,10 +26,16 @@ class ProvisionResponse(BaseModel):
     access_app_id: str
 
 
+class LoginEventRequest(BaseModel):
+    user: str
+    ip: str
+
+
 app = FastAPI(title="sshclaude Provisioning API")
+init_db()
 
 
-@app.post("/provision", response_model=ProvisionResponse)
+@app.post("/provision", response_model=ProvisionResponse, dependencies=[Depends(verify_token)])
 def provision(req: ProvisionRequest) -> ProvisionResponse:
     try:
         tunnel = cloudflare.create_tunnel(req.subdomain)
@@ -37,34 +49,75 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
         "dns_record_id": dns["result"]["id"],
         "access_app_id": access["result"]["id"],
     }
-    PROVISIONED[req.subdomain] = data
+    with get_session() as db:
+        provision = Provision(
+            email=req.email,
+            subdomain=req.subdomain,
+            **data,
+        )
+        db.add(provision)
+        db.commit()
     return ProvisionResponse(**data)
 
 
-@app.delete("/provision/{subdomain}")
+@app.delete("/provision/{subdomain}", dependencies=[Depends(verify_token)])
 def delete_provision(subdomain: str) -> dict[str, str]:
-    try:
-        info = PROVISIONED.pop(subdomain)
-        cloudflare.delete_access_app(info["access_app_id"])
-        cloudflare.delete_dns_record(info["dns_record_id"])
-        cloudflare.delete_tunnel(info["tunnel_id"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    with get_session() as db:
+        provision = db.query(Provision).filter_by(subdomain=subdomain).first()
+        if not provision:
+            raise HTTPException(status_code=404, detail="unknown subdomain")
+        try:
+            cloudflare.delete_access_app(provision.access_app_id)
+            cloudflare.delete_dns_record(provision.dns_record_id)
+            cloudflare.delete_tunnel(provision.tunnel_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        db.delete(provision)
+        db.commit()
     return {"status": "deleted"}
 
 
-@app.get("/history/{subdomain}")
-def history(subdomain: str) -> list[dict[str, str]]:
+@app.get("/history/{subdomain}", dependencies=[Depends(verify_token)])
+def history(subdomain: str):
     """Return login history for a subdomain."""
-    return LOGIN_HISTORY.get(subdomain, [])
+    with get_session() as db:
+        events = (
+            db.query(LoginEvent)
+            .filter_by(subdomain=subdomain)
+            .order_by(LoginEvent.timestamp.desc())
+            .all()
+        )
+        return [
+            {
+                "user": e.user,
+                "ip": e.ip,
+                "timestamp": e.timestamp.isoformat(),
+            }
+            for e in events
+        ]
 
 
-@app.post("/rotate-key/{subdomain}")
+@app.post("/login/{subdomain}", dependencies=[Depends(verify_token)])
+def record_login(subdomain: str, event: LoginEventRequest) -> dict[str, str]:
+    with get_session() as db:
+        db.add(
+            LoginEvent(subdomain=subdomain, user=event.user, ip=event.ip)
+        )
+        db.commit()
+    return {"status": "recorded"}
+
+
+@app.post("/rotate-key/{subdomain}", dependencies=[Depends(verify_token)])
 def rotate_key(subdomain: str) -> dict[str, str]:
     """Rotate SSH host key for the given subdomain."""
-    if subdomain not in PROVISIONED:
-        raise HTTPException(status_code=404, detail="unknown subdomain")
-    # Placeholder for real rotation logic
+    with get_session() as db:
+        provision = db.query(Provision).filter_by(subdomain=subdomain).first()
+        if not provision:
+            raise HTTPException(status_code=404, detail="unknown subdomain")
+        try:
+            cloudflare.rotate_host_key(provision.tunnel_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
     return {"status": "rotated"}
 
 
@@ -72,6 +125,13 @@ def main() -> None:
     import uvicorn
 
     uvicorn.run("sshclaude.api:app", host="0.0.0.0", port=8000)
+
+
+def lambda_handler(event, context):
+    from mangum import Mangum
+
+    handler = Mangum(app)
+    return handler(event, context)
 
 
 if __name__ == "__main__":
