@@ -12,9 +12,12 @@ rich = "^13.0"
 pyyaml = "^6.0"
 requests = "^2.32"
 tqdm = "^4.66"
+fastapi = "^0.110"
+uvicorn = "^0.27"
 
 [tool.poetry.scripts]
 sshclaude = "sshclaude.cli:cli"
+sshclaude-api = "sshclaude.api:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
