@@ -1,0 +1,47 @@
+from fastapi.testclient import TestClient
+from sshclaude.api import app, init_db
+from sshclaude.db import Base
+from sqlalchemy import create_engine
+import os
+
+
+def setup_module(module):
+    # Use in-memory SQLite for tests
+    test_url = "sqlite:///:memory:"
+    os.environ["DATABASE_URL"] = test_url
+    test_engine = create_engine(test_url, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=test_engine)
+    init_db()
+
+
+def test_provision_cycle(monkeypatch):
+    client = TestClient(app)
+
+    class Dummy:
+        def __init__(self, result):
+            self.result = result
+
+    def fake_create_tunnel(name):
+        return {"result": {"id": "tid"}}
+
+    def fake_create_dns_record(subdomain, tid):
+        return {"result": {"id": "dns"}}
+
+    def fake_create_access_app(email, subdomain):
+        return {"result": {"id": "app"}}
+
+    monkeypatch.setattr("sshclaude.cloudflare.create_tunnel", fake_create_tunnel)
+    monkeypatch.setattr("sshclaude.cloudflare.create_dns_record", fake_create_dns_record)
+    monkeypatch.setattr("sshclaude.cloudflare.create_access_app", fake_create_access_app)
+
+    resp = client.post("/provision", json={"email": "a@b.com", "subdomain": "test"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tunnel_id"] == "tid"
+
+    resp = client.post("/rotate-key/test")
+    assert resp.status_code == 200
+
+    resp = client.delete("/provision/test")
+    assert resp.status_code == 200
+

@@ -85,8 +85,8 @@ Open **https\://\<user>.sshclaude.com** in Safari → SSO prompt → MFA / Face�
 | Component            | Language      | Responsibility                                    |
 | -------------------- | ------------- | ------------------------------------------------- |
 | **sshclaude‑cli**    | Python        | Local installer, daemon bootstrap, local UX.      |
-| **Provisioning API** | Python + FastAPI | Orbit on sshclaude.com; calls Cloudflare REST.    |
-| **State store**      | Postgres      | Maps user→sub‑domain→tunnel ID.                   |
+| **Provisioning API** | Python + FastAPI | Deployed on AWS Lambda via API Gateway; calls Cloudflare REST.    |
+| **State store**      | Postgres (RDS) | Maps user→sub-domain→tunnel ID and login history. |
 | **Web Console**      | React/Next.js | Shows login history, rotate keys, delete service. |
 
 ---

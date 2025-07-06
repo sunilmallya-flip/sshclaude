@@ -8,12 +8,37 @@ from rich.console import Console
 from rich.progress import Progress
 
 CONFIG_FILE = Path.home() / ".sshclaude" / "config.yaml"
+PLIST_FILE = Path.home() / "Library/LaunchAgents" / "com.sshclaude.tunnel.plist"
 API_URL = os.getenv("SSHCLAUDE_API", "http://localhost:8000")
 console = Console()
 
 
 def ensure_config_dir():
     (CONFIG_FILE.parent).mkdir(parents=True, exist_ok=True)
+
+
+def write_plist(subdomain: str) -> None:
+    PLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    plist = f"""<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
+<plist version='1.0'>
+<dict>
+    <key>Label</key>
+    <string>com.sshclaude.tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/cloudflared</string>
+        <string>tunnel</string>
+        <string>run</string>
+        <string>{subdomain}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+"""
+    PLIST_FILE.write_text(plist)
+    subprocess.run(["launchctl", "load", str(PLIST_FILE)], check=False)
 
 
 def write_config(data: dict):
@@ -85,6 +110,7 @@ def init(email: str, domain: str | None, session: str):
         "access_app_id": data.get("access_app_id"),
     }
     write_config(config)
+    write_plist(subdomain)
     console.print("[green]Initialization complete!")
 
 
@@ -116,7 +142,13 @@ def rotate_key():
         return
     console.print("[bold]Rotating SSH host key...")
     subprocess.run(["ssh-keygen", "-f", str(Path.home() / ".ssh" / "sshclaude"), "-N", ""], check=False)
-    console.print("[green]Host key rotated. Update your Access policy accordingly.")
+    subdomain = config.get("domain")
+    try:
+        resp = requests.post(f"{API_URL}/rotate-key/{subdomain}", timeout=30)
+        resp.raise_for_status()
+        console.print("[green]Host key rotated.")
+    except Exception as e:
+        console.print(f"[red]Failed to notify server: {e}")
 
 
 @cli.command()
@@ -143,6 +175,8 @@ def uninstall():
             return
         progress.update(t, advance=2)
 
+    subprocess.run(["launchctl", "unload", str(PLIST_FILE)], check=False)
+    PLIST_FILE.unlink(missing_ok=True)
     CONFIG_FILE.unlink(missing_ok=True)
     console.print("[green]Uninstall complete.")
 
