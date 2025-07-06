@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from . import cloudflare
 
 PROVISIONED: dict[str, dict[str, str]] = {}
+LOGIN_HISTORY: dict[str, list[dict[str, str]]] = {}
 
 
 class ProvisionRequest(BaseModel):
@@ -50,6 +51,21 @@ def delete_provision(subdomain: str) -> dict[str, str]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     return {"status": "deleted"}
+
+
+@app.get("/history/{subdomain}")
+def history(subdomain: str) -> list[dict[str, str]]:
+    """Return login history for a subdomain."""
+    return LOGIN_HISTORY.get(subdomain, [])
+
+
+@app.post("/rotate-key/{subdomain}")
+def rotate_key(subdomain: str) -> dict[str, str]:
+    """Rotate SSH host key for the given subdomain."""
+    if subdomain not in PROVISIONED:
+        raise HTTPException(status_code=404, detail="unknown subdomain")
+    # Placeholder for real rotation logic
+    return {"status": "rotated"}
 
 
 def main() -> None:
