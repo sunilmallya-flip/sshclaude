@@ -91,6 +91,19 @@ Open **https\://\<user>.sshclaude.com** in Safari → SSO prompt → MFA / Face�
 
 ---
 
+## 🌐 Web Console
+
+The `web/` directory contains a small Next.js app that talks to the provisioning API.
+Copy `web/.env.example` to `web/.env` and adjust the API endpoint and token. Then run:
+
+```bash
+cd web && npm run dev
+```
+
+This console lets you view login history, rotate your SSH host key, and delete the service.
+
+---
+
 ## ⚙️ CLI Commands (draft)
 
 ```bash
