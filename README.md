@@ -85,7 +85,7 @@ Open **https\://\<user>.sshclaude.com** in Safari → SSO prompt → MFA / Face�
 | Component            | Language      | Responsibility                                    |
 | -------------------- | ------------- | ------------------------------------------------- |
 | **sshclaude‑cli**    | Python        | Local installer, daemon bootstrap, local UX.      |
-| **Provisioning API** | Node + tRPC   | Orbit on sshclaude.com; calls Cloudflare REST.    |
+| **Provisioning API** | Python + FastAPI | Orbit on sshclaude.com; calls Cloudflare REST.    |
 | **State store**      | Postgres      | Maps user→sub‑domain→tunnel ID.                   |
 | **Web Console**      | React/Next.js | Shows login history, rotate keys, delete service. |
 
@@ -115,6 +115,7 @@ sshclaude uninstall      # Remove tunnel + launchd service + DNS
 1. `git clone` & `make dev` (uses Poetry + pre‑commit).
 2. `.env.example` → `.env` and add Cloudflare API token for staging zone.
 3. Run local tunnel e2e with `make e2e` (uses ngrok for callback stubs).
+4. Launch the provisioning API with `sshclaude-api`.
 
 ---
 
