@@ -4,16 +4,24 @@ from __future__ import annotations
 
 import os
 from typing import Any
-
 import requests
+
+
+class MissingEnvError(RuntimeError):
+    """Raised when a required environment variable is missing."""
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise MissingEnvError(f"Environment variable {name} is required but not set")
+    return value
 
 API_BASE = "https://api.cloudflare.com/client/v4"
 
 
 def _headers() -> dict[str, str]:
-    token = os.getenv("CLOUDFLARE_TOKEN")
-    if not token:
-        raise RuntimeError("CLOUDFLARE_TOKEN not set")
+    token = _require_env("CLOUDFLARE_TOKEN")
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
@@ -36,9 +44,7 @@ def delete_tunnel(tunnel_id: str) -> None:
 
 
 def create_dns_record(subdomain: str, tunnel_id: str) -> dict[str, Any]:
-    zone_id = os.getenv("CLOUDFLARE_ZONE_ID")
-    if not zone_id:
-        raise RuntimeError("CLOUDFLARE_ZONE_ID not set")
+    zone_id = _require_env("CLOUDFLARE_ZONE_ID")
     resp = requests.post(
         f"{API_BASE}/zones/{zone_id}/dns_records",
         json={
@@ -54,9 +60,7 @@ def create_dns_record(subdomain: str, tunnel_id: str) -> dict[str, Any]:
 
 
 def delete_dns_record(record_id: str) -> None:
-    zone_id = os.getenv("CLOUDFLARE_ZONE_ID")
-    if not zone_id:
-        raise RuntimeError("CLOUDFLARE_ZONE_ID not set")
+    zone_id = _require_env("CLOUDFLARE_ZONE_ID")
     resp = requests.delete(
         f"{API_BASE}/zones/{zone_id}/dns_records/{record_id}",
         headers=_headers(),
@@ -66,9 +70,7 @@ def delete_dns_record(record_id: str) -> None:
 
 
 def create_access_app(email: str, subdomain: str) -> dict[str, Any]:
-    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-    if not account_id:
-        raise RuntimeError("CLOUDFLARE_ACCOUNT_ID not set")
+    account_id = _require_env("CLOUDFLARE_ACCOUNT_ID")
     resp = requests.post(
         f"{API_BASE}/accounts/{account_id}/access/apps",
         json={
@@ -97,9 +99,7 @@ def create_access_app(email: str, subdomain: str) -> dict[str, Any]:
 
 
 def delete_access_app(app_id: str) -> None:
-    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
-    if not account_id:
-        raise RuntimeError("CLOUDFLARE_ACCOUNT_ID not set")
+    account_id = _require_env("CLOUDFLARE_ACCOUNT_ID")
     resp = requests.delete(
         f"{API_BASE}/accounts/{account_id}/access/apps/{app_id}",
         headers=_headers(),

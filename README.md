@@ -126,7 +126,7 @@ sshclaude uninstall      # Remove tunnel + launchd service + DNS
 ## 🛠 Development
 
 1. `git clone` then run `./setup_env.sh` (or `make dev`) to install dependencies and pre‑commit hooks.
-2. `.env.example` → `.env` and add Cloudflare API token for staging zone.
+2. `.env.example` → `.env` and set `CLOUDFLARE_TOKEN`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_ACCOUNT_ID` for the staging zone.
 3. Run local tunnel e2e with `make e2e` (uses ngrok for callback stubs).
 4. Launch the provisioning API with `sshclaude-api`.
 
