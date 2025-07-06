@@ -4,8 +4,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from . import cloudflare
+from .db import get_db, init_db
 
-PROVISIONED: dict[str, dict[str, str]] = {}
+init_db()
 
 
 class ProvisionRequest(BaseModel):
@@ -36,19 +37,55 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
         "dns_record_id": dns["result"]["id"],
         "access_app_id": access["result"]["id"],
     }
-    PROVISIONED[req.subdomain] = data
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT OR IGNORE INTO users(email) VALUES (?)", (req.email,))
+        cur.execute("SELECT id FROM users WHERE email=?", (req.email,))
+        user_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO tunnels(subdomain, tunnel_id, user_id) VALUES (?, ?, ?)",
+            (req.subdomain, data["tunnel_id"], user_id),
+        )
+        tunnel_db_id = cur.lastrowid
+        cur.execute(
+            "INSERT INTO dns_access(dns_record_id, access_app_id, tunnel_id) VALUES (?, ?, ?)",
+            (data["dns_record_id"], data["access_app_id"], tunnel_db_id),
+        )
+        conn.commit()
+
     return ProvisionResponse(**data)
 
 
 @app.delete("/provision/{subdomain}")
 def delete_provision(subdomain: str) -> dict[str, str]:
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tunnels.id, tunnels.tunnel_id, dns_access.dns_record_id, dns_access.access_app_id
+            FROM tunnels JOIN dns_access ON dns_access.tunnel_id = tunnels.id
+            WHERE tunnels.subdomain=?
+            """,
+            (subdomain,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="subdomain not found")
+        tunnel_pk, tunnel_id, dns_id, access_id = row
+
     try:
-        info = PROVISIONED.pop(subdomain)
-        cloudflare.delete_access_app(info["access_app_id"])
-        cloudflare.delete_dns_record(info["dns_record_id"])
-        cloudflare.delete_tunnel(info["tunnel_id"])
+        cloudflare.delete_access_app(access_id)
+        cloudflare.delete_dns_record(dns_id)
+        cloudflare.delete_tunnel(tunnel_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM dns_access WHERE tunnel_id=?", (tunnel_pk,))
+        cur.execute("DELETE FROM tunnels WHERE id=?", (tunnel_pk,))
+        conn.commit()
     return {"status": "deleted"}
 
 
