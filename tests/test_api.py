@@ -1,8 +1,10 @@
+import os
+
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+
 from sshclaude.api import app, init_db
 from sshclaude.db import Base
-from sqlalchemy import create_engine
-import os
 
 
 def setup_module(module):
@@ -31,8 +33,12 @@ def test_provision_cycle(monkeypatch):
         return {"result": {"id": "app"}}
 
     monkeypatch.setattr("sshclaude.cloudflare.create_tunnel", fake_create_tunnel)
-    monkeypatch.setattr("sshclaude.cloudflare.create_dns_record", fake_create_dns_record)
-    monkeypatch.setattr("sshclaude.cloudflare.create_access_app", fake_create_access_app)
+    monkeypatch.setattr(
+        "sshclaude.cloudflare.create_dns_record", fake_create_dns_record
+    )
+    monkeypatch.setattr(
+        "sshclaude.cloudflare.create_access_app", fake_create_access_app
+    )
     monkeypatch.setattr("sshclaude.cloudflare.rotate_host_key", lambda tid: None)
     monkeypatch.setattr("sshclaude.cloudflare.delete_access_app", lambda app_id: None)
     monkeypatch.setattr("sshclaude.cloudflare.delete_dns_record", lambda rec_id: None)
@@ -45,7 +51,11 @@ def test_provision_cycle(monkeypatch):
 
     resp = client.get("/provision/test")
     assert resp.status_code == 200
-    assert resp.json() == {"tunnel_id": "tid", "dns_record_id": "dns", "access_app_id": "app"}
+    assert resp.json() == {
+        "tunnel_id": "tid",
+        "dns_record_id": "dns",
+        "access_app_id": "app",
+    }
 
     resp = client.post("/rotate-key/test")
     assert resp.status_code == 200
@@ -56,3 +66,26 @@ def test_provision_cycle(monkeypatch):
     resp = client.get("/provision/test")
     assert resp.status_code == 404
 
+
+def test_login_flow():
+    client = TestClient(app)
+
+    resp = client.post("/login")
+    assert resp.status_code == 200
+    data = resp.json()
+    uid = data["url"].split("/")[-1]
+    token = data["token"]
+
+    resp = client.get(f"/login/{uid}/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"verified": False}
+
+    resp = client.post(f"/login/{uid}", json={"token": "wrong"})
+    assert resp.status_code == 400
+
+    resp = client.post(f"/login/{uid}", json={"token": token})
+    assert resp.status_code == 200
+
+    resp = client.get(f"/login/{uid}/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"verified": True}

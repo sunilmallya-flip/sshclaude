@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
-from fastapi import FastAPI, HTTPException, Depends, Header
+import secrets
+import uuid
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from . import cloudflare
-from .db import Provision, LoginEvent, get_session, init_db
+from .db import LoginEvent, LoginSession, Provision, get_session, init_db
 
 API_TOKEN = os.getenv("API_TOKEN")
 
@@ -31,11 +34,52 @@ class LoginEventRequest(BaseModel):
     ip: str
 
 
+class LoginSessionResponse(BaseModel):
+    url: str
+    token: str
+
+
+class TokenRequest(BaseModel):
+    token: str
+
+
 app = FastAPI(title="sshclaude Provisioning API")
 init_db()
 
 
-@app.post("/provision", response_model=ProvisionResponse, dependencies=[Depends(verify_token)])
+@app.post("/login", response_model=LoginSessionResponse)
+def create_login() -> LoginSessionResponse:
+    uid = uuid.uuid4().hex
+    token = secrets.token_urlsafe(8)
+    with get_session() as db:
+        db.add(LoginSession(id=uid, token=token))
+        db.commit()
+    return LoginSessionResponse(url=f"/login/{uid}", token=token)
+
+
+@app.post("/login/{uid}")
+def verify_login(uid: str, req: TokenRequest) -> dict[str, str]:
+    with get_session() as db:
+        session = db.query(LoginSession).filter_by(id=uid).first()
+        if not session or session.token != req.token:
+            raise HTTPException(status_code=400, detail="invalid token")
+        session.verified = True
+        db.commit()
+    return {"status": "verified"}
+
+
+@app.get("/login/{uid}/status")
+def login_status(uid: str) -> dict[str, bool]:
+    with get_session() as db:
+        session = db.query(LoginSession).filter_by(id=uid).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="unknown uid")
+        return {"verified": session.verified}
+
+
+@app.post(
+    "/provision", response_model=ProvisionResponse, dependencies=[Depends(verify_token)]
+)
 def provision(req: ProvisionRequest) -> ProvisionResponse:
     try:
         tunnel = cloudflare.create_tunnel(req.subdomain)
@@ -60,7 +104,11 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
     return ProvisionResponse(**data)
 
 
-@app.get("/provision/{subdomain}", response_model=ProvisionResponse, dependencies=[Depends(verify_token)])
+@app.get(
+    "/provision/{subdomain}",
+    response_model=ProvisionResponse,
+    dependencies=[Depends(verify_token)],
+)
 def get_provision(subdomain: str) -> ProvisionResponse:
     """Return provision details for a subdomain."""
     with get_session() as db:
@@ -111,12 +159,10 @@ def history(subdomain: str):
         ]
 
 
-@app.post("/login/{subdomain}", dependencies=[Depends(verify_token)])
+@app.post("/record-login/{subdomain}", dependencies=[Depends(verify_token)])
 def record_login(subdomain: str, event: LoginEventRequest) -> dict[str, str]:
     with get_session() as db:
-        db.add(
-            LoginEvent(subdomain=subdomain, user=event.user, ip=event.ip)
-        )
+        db.add(LoginEvent(subdomain=subdomain, user=event.user, ip=event.ip))
         db.commit()
     return {"status": "recorded"}
 
