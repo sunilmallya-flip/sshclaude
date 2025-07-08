@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Generator
 
-from sqlalchemy import Column, Integer, String, create_engine, DateTime
+from sqlalchemy import (Boolean, Column, DateTime, Integer, String,
+                        create_engine)
 from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sshclaude.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=(
+        {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    ),
+)
 SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
@@ -34,6 +40,15 @@ class LoginEvent(Base):
     user = Column(String, nullable=False)
     ip = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class LoginSession(Base):
+    __tablename__ = "login_sessions"
+
+    id = Column(String, primary_key=True, index=True)
+    token = Column(String, nullable=False)
+    verified = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 def init_db() -> None:
