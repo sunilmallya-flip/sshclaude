@@ -111,7 +111,11 @@ Open **https\://\<user>.sshclaude.com** in Safari → SSO prompt → MFA / Face�
 ## 🌐 Web Console
 
 The `web/` directory contains a small Next.js app that talks to the provisioning API.
-Copy `web/.env.example` to `web/.env` and adjust the API endpoint and token. Then run:
+
+1. Copy `web/.env.example` to `web/.env` and edit the values:
+   - `NEXT_PUBLIC_API_BASE` – base URL of the provisioning API.
+   - `NEXT_PUBLIC_API_TOKEN` – bearer token for API requests.
+2. Run the dev server:
 
 ```bash
 cd web && npm run dev
