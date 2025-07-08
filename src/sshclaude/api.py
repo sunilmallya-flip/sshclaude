@@ -60,6 +60,20 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
     return ProvisionResponse(**data)
 
 
+@app.get("/provision/{subdomain}", response_model=ProvisionResponse, dependencies=[Depends(verify_token)])
+def get_provision(subdomain: str) -> ProvisionResponse:
+    """Return provision details for a subdomain."""
+    with get_session() as db:
+        provision = db.query(Provision).filter_by(subdomain=subdomain).first()
+        if not provision:
+            raise HTTPException(status_code=404, detail="unknown subdomain")
+        return ProvisionResponse(
+            tunnel_id=provision.tunnel_id,
+            dns_record_id=provision.dns_record_id,
+            access_app_id=provision.access_app_id,
+        )
+
+
 @app.delete("/provision/{subdomain}", dependencies=[Depends(verify_token)])
 def delete_provision(subdomain: str) -> dict[str, str]:
     with get_session() as db:

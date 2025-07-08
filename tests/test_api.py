@@ -33,15 +33,26 @@ def test_provision_cycle(monkeypatch):
     monkeypatch.setattr("sshclaude.cloudflare.create_tunnel", fake_create_tunnel)
     monkeypatch.setattr("sshclaude.cloudflare.create_dns_record", fake_create_dns_record)
     monkeypatch.setattr("sshclaude.cloudflare.create_access_app", fake_create_access_app)
+    monkeypatch.setattr("sshclaude.cloudflare.rotate_host_key", lambda tid: None)
+    monkeypatch.setattr("sshclaude.cloudflare.delete_access_app", lambda app_id: None)
+    monkeypatch.setattr("sshclaude.cloudflare.delete_dns_record", lambda rec_id: None)
+    monkeypatch.setattr("sshclaude.cloudflare.delete_tunnel", lambda tid: None)
 
     resp = client.post("/provision", json={"email": "a@b.com", "subdomain": "test"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["tunnel_id"] == "tid"
 
+    resp = client.get("/provision/test")
+    assert resp.status_code == 200
+    assert resp.json() == {"tunnel_id": "tid", "dns_record_id": "dns", "access_app_id": "app"}
+
     resp = client.post("/rotate-key/test")
     assert resp.status_code == 200
 
     resp = client.delete("/provision/test")
     assert resp.status_code == 200
+
+    resp = client.get("/provision/test")
+    assert resp.status_code == 404
 
