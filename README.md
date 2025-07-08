@@ -121,6 +121,21 @@ This console lets you view login history, rotate your SSH host key, and delete t
 
 ---
 
+## 🔑 API_TOKEN
+
+All API endpoints are guarded by a shared bearer token. Set `API_TOKEN`
+before launching the FastAPI server:
+
+```bash
+export API_TOKEN=mysupersecret
+sshclaude-api
+```
+
+The CLI and Web Console must include the same value in each request using an
+`Authorization: Bearer mysupersecret` header.
+
+---
+
 ## ⚙️ CLI Commands (draft)
 
 ```bash
