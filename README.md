@@ -1,177 +1,130 @@
-# **SSHCLAUDE** – Zero‑Install Browser SSH for Humans
+# **SSHCLAUDE** – Secure Claude Terminal in Your Browser
 
-> **Mission**  Deliver a dead‑simple, zero‑trust path into your Mac’s Bash prompt—visible in **any mobile browser**, protected by SSO + MFA/Face ID, with *one* command: `pip install sshclaude`.
-
----
-
-## ✨ Key Features
-
-| Capability               | Details                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| **One‑line setup**       | `pip install sshclaude && sshclaude init` → we bootstrap Cloudflare Tunnel, Access app, and DNS. |
-| **Personal sub‑domain**  | Auto‑provisioned as `<user>.sshclaude.com` (or bring‑your‑own domain via flag).                  |
-| **Browser‑rendered SSH** | Uses Cloudflare’s Web‑SSH so Safari/Chrome behaves like Termius — no mobile app.                 |
-| **Strong auth**          | SSO to your IdP ➟ MFA ➟ optional Face ID via Cloudflare One/WARP posture checks.                 |
-| **Zero open ports**      | Outbound `cloudflared` only; Mac firewall stays shut.                                            |
-| **SaaS control‑plane**   | sshclaude.com API owns all Cloudflare objects; users never touch API tokens.                     |
+> **Mission**  Deliver a zero-trust, browser-accessible Claude CLI with no open ports, no full shell exposure, and bi-directional interaction secured by Cloudflare Tunnel and Access.
 
 ---
 
-## 🏗 High‑Level Architecture
+## ✨ Key Features
+
+| Capability                  | Details                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| **Zero-port networking**    | Uses Cloudflare Tunnel to route HTTPS traffic to localhost without exposing public ports. |
+| **Browser-based Claude**    | Launches Claude CLI via `ttyd` in a web terminal; not a full shell or SSH session.        |
+| **Access control**          | Only specific emails/IPs can access using Cloudflare Access + MFA.                        |
+| **No SSH exposure**         | Runs Claude directly via a CLI wrapper; does not expose bash or shell access.             |
+| **Launch-once tunnel**      | Uses dashboard-created token to launch tunnel with `cloudflared --token`                  |
+| **Cloudflare Access gated** | MFA, session TTL, email or IP-based rules apply before tunnel is reached.                 |
+
+---
+
+## 🧑‍💻 What the End User Does (sshclaude client setup)
+
+> All of this will be fully automated by the `sshclaude` CLI.
+
+### 🔹 Step-by-step (manual for now, automated soon)
+
+1. **Install prerequisites**:
+
+```bash
+brew install cloudflared ttyd
+pip install sshclaude  # if CLI wrapper is provided
+```
+
+2. **Download config from SSHCLAUDE**:
+
+* Receive a `token.json` and a suggested `config.yml`
+* Place them in `~/.cloudflared/`
+
+3. **Start Claude securely**:
+
+```bash
+ttyd --once /usr/local/bin/claude  # or ./run_claude.sh
+```
+
+4. **Run the secure tunnel**:
+
+```bash
+cloudflared tunnel run --token $(cat ~/.cloudflared/token.json | jq -r .tunnel_token)
+```
+
+5. **Verify it's working**:
+
+* Visit `https://your-name.sshclaude.com` in any browser
+* Log in with email + MFA via Cloudflare Access
+* Claude CLI is fully interactive in the browser
+
+---
+
+## ⚙️ What the `sshclaude` CLI Will Automate
+
+When a user runs:
+
+```bash
+sshclaude init
+```
+
+The CLI will:
+
+1. Install or upgrade `cloudflared` and `ttyd`
+2. Download and place the correct `token.json` and `config.yml`
+3. Write a launcher script to start Claude via `ttyd`
+4. Launch `cloudflared` with the proper token
+5. Print the public tunnel URL and test connectivity
+
+> The CLI may also support autostart via launchd (macOS), systemd (Linux), or login hook
+
+---
+
+## 🛠 TODO: SSHCLAUDE Server Responsibilities
+
+The `sshclaude.com` provisioning backend will handle:
+
+| Task                        | Description                                                               |
+| --------------------------- | ------------------------------------------------------------------------- |
+| **Tunnel provisioning**     | Use Cloudflare API to create a new tunnel (named or token-based)          |
+| **DNS routing**             | Create CNAME: `<user>.sshclaude.dev` → `tunnel-id.cfargotunnel.com`       |
+| **Access app creation**     | Define a Cloudflare Access application for each tunnel                    |
+| **Policy enforcement**      | Include only allowed emails or IPs + enforce MFA                          |
+| **Token issuance**          | Return connector `*.json` token to CLI for `cloudflared --token` usage    |
+| **Audit tracking**          | Log login attempts, success, session durations, and activity metadata     |
+| **Token revocation API**    | Invalidate credentials and remove public hostnames if revoked/uninstalled |
+| **Expiration enforcement**  | Optionally expire tunnels on TTL (e.g., 24 hours unless refreshed)        |
+| **Multi-tenant separation** | Isolate per-user tunnels, Access apps, and DNS mappings                   |
+
+---
+
+## 🛡 Security Summary for End User
+
+| Area         | Secured How                                                 |
+| ------------ | ----------------------------------------------------------- |
+| Shell access | ❌ Not exposed; Claude CLI only                              |
+| Tunnel auth  | 🔐 Token-based; no need for cert.pem or SSH keys            |
+| Session TTL  | ⏱️ Short-lived sessions (e.g., 15 min) enforced by Access   |
+| User control | ✅ User runs `ttyd` and Claude locally; nothing runs as root |
+
+---
+
+## 🏗 Architecture Overview
 
 ```text
-┌─────────────┐  HTTPS   ┌──────────────┐   mTLS   ┌────────────┐
-│   iPhone    │◀────────▶│ Cloudflare POP│◀────────▶│  Mac (SSH) │
-└─────────────┘          └──────────────┘           └────────────┘
-       ▲                        ▲                          ▲
-       │                        │                          │
-  Face ID / MFA          Access App                cloudflared
-       │                        │                          │
-       ▼                        ▼                          ▼
-            ┌──────────────── sshclaude SaaS ─────────────┐
-            │  DNS + Access + Tunnel Provisioning API     │
-            └──────────────────────────────────────────────┘
-```
-
-## ☁️ AWS Deployment Architecture
-
-```text
-┌───────────┐ HTTPS  ┌────────────┐  invokes   ┌───────────────────┐
-│CLI/Web UI├────────▶│API Gateway├──────────▶│Lambda (FastAPI)   │
-└───────────┘        └────────────┘           └───────┬───────────┘
-                 ┌───────────────┐       ┌─────────────┐
-                 │ RDS Postgres  │       │ SecretsMgr   │
-                 └──────┬────────┘       └──────┬───────┘
-                        │                     │
-                        └──────────┬──────────┘
-                                   ▼
-                           ┌──────────────┐
-                           │Cloudflare API│
-                           └──────────────┘
+Browser (User)
+   │
+   ▼ HTTPS
+Cloudflare Access (SSO + MFA + IP check)
+   │
+   ▼ TLS + mTLS
+Cloudflare Tunnel (cloudflared with token)
+   │
+   ▼
+Local Claude CLI (wrapped in ttyd, single command only)
 ```
 
 ---
 
-## 🚀 Quick Start
+## ✅ Status: Confirmed Working
 
-### 1. Install CLI
+* Claude running locally via ttyd
+* Tunnel live via `cloudflared --token`
+* Access gated and no shell exposure
 
-```bash
-pip install sshclaude        # Requires Python ≥3.9 on macOS
-```
-
-### 2. Initialize (one‑time)
-
-```bash
-sshclaude init --email you@corp.com
-```
-
-*Prompts you for:*
-
-* Cloudflare sign‑in (OAuth device flow)
-* Desired sub‑domain (press Enter for default `<user>.sshclaude.com`)
-* SSH username (defaults to macOS short name)
-
-Behind the scenes we:
-
-1. Install/upgrade **cloudflared** via Homebrew.
-2. Generate & store a short‑lived service token with least‑priv perms.
-3. Create **Tunnel**, **DNS CNAME**, **Access app**, and **policy** bound to your email.
-4. Write & start a `launchd` plist so the connector survives reboots.
-
-### 3. Connect from phone
-
-Open **https\://\<user>.sshclaude.com** in Safari → SSO prompt → MFA / Face ID → streaming Bash shell appears.
-
-> Tip: run `tmux` on the Mac so sessions persist if the phone sleeps.
-
----
-
-## 🔒 Security Model
-
-* **Zero Trust**: every request evaluated by Cloudflare Access before TCP handshake.
-* **E2E encryption**: TLS 1.3 iPhone↟Cloudflare; mTLS Cloudflare↟Mac.
-* **Key‑only SSH**: during `init` we disable password auth (`sshd_config`).
-* **Session TTL**: default 15 min; configurable via `--session 5m|1h`.
-* **Auditing**: all logins visible in sshclaude.com dashboard (user, IP, duration).
-
----
-
-## 🧩 Components
-
-| Component            | Language      | Responsibility                                    |
-| -------------------- | ------------- | ------------------------------------------------- |
-| **sshclaude‑cli**    | Python        | Local installer, daemon bootstrap, local UX.      |
-| **Provisioning API** | Python + FastAPI | Deployed on AWS Lambda via API Gateway; calls Cloudflare REST.    |
-| **State store**      | Postgres (RDS) | Maps user→sub-domain→tunnel ID and login history. |
-| **Web Console**      | React/Next.js | Shows login history, rotate keys, delete service. |
-
----
-
-## 🌐 Web Console
-
-The `web/` directory contains a small Next.js app that talks to the provisioning API.
-
-1. Copy `web/.env.example` to `web/.env` and edit the values:
-   - `NEXT_PUBLIC_API_BASE` – base URL of the provisioning API.
-   - `NEXT_PUBLIC_API_TOKEN` – bearer token for API requests.
-2. Run the dev server:
-
-```bash
-cd web && npm run dev
-```
-
-This console lets you view login history, rotate your SSH host key, and delete the service.
-
----
-
-## 🔑 API_TOKEN
-
-All API endpoints are guarded by a shared bearer token. Set `API_TOKEN`
-before launching the FastAPI server:
-
-```bash
-export API_TOKEN=mysupersecret
-sshclaude-api
-```
-
-The CLI and Web Console must include the same value in each request using an
-`Authorization: Bearer mysupersecret` header.
-
----
-
-## ⚙️ CLI Commands (draft)
-
-```bash
-sshclaude init [--email] [--domain] [--session]
-sshclaude status         # Show tunnel + Access health
-sshclaude rotate-key     # Regenerate SSH host key & update Access
-sshclaude uninstall      # Remove tunnel + launchd service + DNS
-```
-
----
-
-## 📦 Python Package Details
-
-* Published as **sshclaude** on PyPI.
-* Pure‑Py + `rich` for TUI, depends on `click`, `pyyaml`, `requests`, `tqdm`.
-* Wheels for macOS arm64/x86; falls back to source install.
-
----
-
-## 🛠 Development
-
-1. `git clone` then run `./setup_env.sh` (or `make dev`) to install dependencies and pre‑commit hooks.
-2. `.env.example` → `.env` and set `CLOUDFLARE_TOKEN`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_ACCOUNT_ID` for the staging zone.
-3. Run local tunnel e2e with `make e2e` (uses ngrok for callback stubs).
-4. Launch the provisioning API with `sshclaude-api`.
-
----
-
-## 🤝 Contributing
-
-PRs welcome! Please file an issue first if you plan large changes.  All code under **MIT license**.
-
----
-
-## © 2025 **SSHCLAUDE Inc.**  All rights reserved.
+You're ready to give this to users or build out the CLI to automate it.
