@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import click
+import shutil
 import requests
 from rich.console import Console
 from rich.progress import Progress
@@ -19,9 +20,29 @@ def ensure_config_dir():
 
 
 def install_ttyd():
-    """Install or upgrade ttyd via Homebrew."""
+    """Install ttyd via Homebrew if not already installed."""
+    if shutil.which("ttyd"):
+        console.print("[green]ttyd already installed.")
+        return
+
     console.print("[bold]Installing ttyd via Homebrew...")
-    subprocess.run(["brew", "install", "ttyd"], check=False)
+    subprocess.run(
+        ["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "ttyd"],
+        check=False
+    )
+
+
+def install_cloudflared():
+    """Install cloudflared via Homebrew if not already installed."""
+    if shutil.which("cloudflared"):
+        console.print("[green]cloudflared already installed.")
+        return
+
+    console.print("[bold]Installing cloudflared via Homebrew...")
+    subprocess.run(
+        ["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "cloudflared"],
+        check=False
+    )
 
 
 def write_launcher() -> None:
@@ -83,14 +104,6 @@ def read_config() -> dict:
         with CONFIG_FILE.open() as f:
             return yaml.safe_load(f) or {}
     return {}
-
-
-def install_cloudflared():
-    """Install or upgrade cloudflared via Homebrew."""
-    console.print("[bold]Installing cloudflared via Homebrew...")
-    subprocess.run(["brew", "install", "cloudflared"], check=False)
-
-
 
 
 @click.group()
