@@ -25,6 +25,7 @@ class ProvisionRequest(BaseModel):
 
 class ProvisionResponse(BaseModel):
     tunnel_id: str
+    tunnel_token: str
     dns_record_id: str
     access_app_id: str
 
@@ -85,11 +86,13 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
         tunnel = cloudflare.create_tunnel(req.subdomain)
         dns = cloudflare.create_dns_record(req.subdomain, tunnel["result"]["id"])
         access = cloudflare.create_access_app(req.email, req.subdomain)
+        token = cloudflare.generate_tunnel_token(tunnel["result"]["id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     data = {
         "tunnel_id": tunnel["result"]["id"],
+        "tunnel_token": token,
         "dns_record_id": dns["result"]["id"],
         "access_app_id": access["result"]["id"],
     }
@@ -117,6 +120,7 @@ def get_provision(subdomain: str) -> ProvisionResponse:
             raise HTTPException(status_code=404, detail="unknown subdomain")
         return ProvisionResponse(
             tunnel_id=provision.tunnel_id,
+            tunnel_token=provision.tunnel_token,
             dns_record_id=provision.dns_record_id,
             access_app_id=provision.access_app_id,
         )
