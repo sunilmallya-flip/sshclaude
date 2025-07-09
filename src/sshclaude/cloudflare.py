@@ -70,7 +70,7 @@ def delete_dns_record(record_id: str) -> None:
     resp.raise_for_status()
 
 
-def create_access_app(email: str, subdomain: str) -> dict[str, Any]:
+def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
     account_id = _require_env("CLOUDFLARE_ACCOUNT_ID")
     resp = requests.post(
         f"{API_BASE}/accounts/{account_id}/access/apps",
@@ -90,7 +90,9 @@ def create_access_app(email: str, subdomain: str) -> dict[str, Any]:
         json={
             "name": "default",
             "decision": "allow",
-            "include": [{"emails": [email]}],
+            # In a real implementation this would reference the GitHub identity
+            # provider. We model it as a rule keyed by login name.
+            "include": [{"github": [login]}],
         },
         headers=_headers(),
         timeout=30,

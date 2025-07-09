@@ -10,10 +10,10 @@
 | --------------------------- | ----------------------------------------------------------------------------------------- |
 | **Zero-port networking**    | Uses Cloudflare Tunnel to route HTTPS traffic to localhost without exposing public ports. |
 | **Browser-based Claude**    | Launches Claude CLI via `ttyd` in a web terminal; not a full shell or SSH session.        |
-| **Access control**          | Only specific emails/IPs can access using Cloudflare Access + MFA.                        |
+| **Access control**          | Only approved GitHub logins or IPs can access using Cloudflare Access + MFA.              |
 | **No SSH exposure**         | Runs Claude directly via a CLI wrapper; does not expose bash or shell access.             |
 | **Launch-once tunnel**      | Uses dashboard-created token to launch tunnel with `cloudflared --token`                  |
-| **Cloudflare Access gated** | MFA, session TTL, email or IP-based rules apply before tunnel is reached.                 |
+| **Cloudflare Access gated** | MFA, session TTL, GitHub login or IP-based rules apply before tunnel is reached.          |
 
 ---
 
@@ -50,7 +50,7 @@ cloudflared tunnel run --token $(cat ~/.cloudflared/token.json | jq -r .tunnel_t
 5. **Verify it's working**:
 
 * Visit `https://your-name.sshclaude.com` in any browser
-* Log in with email + MFA via Cloudflare Access
+* Log in with your GitHub account + MFA via Cloudflare Access
 * Claude CLI is fully interactive in the browser
 
 ---
@@ -60,7 +60,7 @@ cloudflared tunnel run --token $(cat ~/.cloudflared/token.json | jq -r .tunnel_t
 When a user runs:
 
 ```bash
-sshclaude init
+sshclaude init --github <your-login>
 ```
 
 The CLI will:
@@ -84,7 +84,7 @@ The `sshclaude.com` provisioning backend will handle:
 | **Tunnel provisioning**     | Use Cloudflare API to create a new tunnel (named or token-based)          |
 | **DNS routing**             | Create CNAME: `<user>.sshclaude.dev` → `tunnel-id.cfargotunnel.com`       |
 | **Access app creation**     | Define a Cloudflare Access application for each tunnel                    |
-| **Policy enforcement**      | Include only allowed emails or IPs + enforce MFA                          |
+| **Policy enforcement**      | Include only allowed GitHub logins or IPs + enforce MFA                   |
 | **Token issuance**          | Return connector `*.json` token to CLI for `cloudflared --token` usage    |
 | **Audit tracking**          | Log login attempts, success, session durations, and activity metadata     |
 | **Token revocation API**    | Invalidate credentials and remove public hostnames if revoked/uninstalled |

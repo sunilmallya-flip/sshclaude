@@ -99,10 +99,10 @@ def cli():
 
 
 @cli.command()
-@click.option("--email", required=True, help="Your email for SSO")
+@click.option("--github", required=True, help="Your GitHub login for SSO")
 @click.option("--domain", help="Custom domain if not using default")
 @click.option("--session", default="15m", help="Session TTL")
-def init(email: str, domain: str | None, session: str):
+def init(github: str, domain: str | None, session: str):
     """Bootstrap Cloudflare Tunnel and Access app."""
 
     config = read_config()
@@ -121,7 +121,7 @@ def init(email: str, domain: str | None, session: str):
         try:
             resp = requests.post(
                 f"{API_URL}/provision",
-                json={"email": email, "subdomain": subdomain},
+                json={"github_id": github, "subdomain": subdomain},
                 timeout=30,
             )
             resp.raise_for_status()
@@ -132,7 +132,7 @@ def init(email: str, domain: str | None, session: str):
         progress.update(t, advance=3)
 
     config = {
-        "email": email,
+        "github_id": github,
         "domain": subdomain,
         "session": session,
         "tunnel_id": data.get("tunnel_id"),
