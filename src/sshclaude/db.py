@@ -28,6 +28,7 @@ class Provision(Base):
     email = Column(String, nullable=False)
     subdomain = Column(String, unique=True, nullable=False)
     tunnel_id = Column(String, nullable=False)
+    tunnel_token = Column(String, nullable=False)
     dns_record_id = Column(String, nullable=False)
     access_app_id = Column(String, nullable=False)
 

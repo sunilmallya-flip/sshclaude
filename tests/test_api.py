@@ -48,11 +48,13 @@ def test_provision_cycle(monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["tunnel_id"] == "tid"
+    assert "tunnel_token" in data
 
     resp = client.get("/provision/test")
     assert resp.status_code == 200
     assert resp.json() == {
         "tunnel_id": "tid",
+        "tunnel_token": data["tunnel_token"],
         "dns_record_id": "dns",
         "access_app_id": "app",
     }

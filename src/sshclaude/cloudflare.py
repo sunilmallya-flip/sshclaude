@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from typing import Any
 import requests
 
@@ -116,3 +117,9 @@ def rotate_host_key(tunnel_id: str) -> None:
         timeout=30,
     )
     resp.raise_for_status()
+
+
+def generate_tunnel_token(tunnel_id: str) -> str:
+    """Return a new connector token for the tunnel."""
+    # Real implementation would call Cloudflare API. Here we stub it.
+    return secrets.token_urlsafe(32)

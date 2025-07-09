@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 CONFIG_FILE = Path.home() / ".sshclaude" / "config.yaml"
+LAUNCHER_FILE = Path.home() / ".sshclaude" / "launch_claude.sh"
 PLIST_FILE = Path.home() / "Library/LaunchAgents" / "com.sshclaude.tunnel.plist"
 API_URL = os.getenv("SSHCLAUDE_API", "http://localhost:8000")
 console = Console()
@@ -17,7 +18,32 @@ def ensure_config_dir():
     (CONFIG_FILE.parent).mkdir(parents=True, exist_ok=True)
 
 
-def write_plist(subdomain: str) -> None:
+def install_ttyd():
+    """Install or upgrade ttyd via Homebrew."""
+    console.print("[bold]Installing ttyd via Homebrew...")
+    subprocess.run(["brew", "install", "ttyd"], check=False)
+
+
+def write_launcher() -> None:
+    """Create a launcher script that runs Claude via ttyd."""
+    ensure_config_dir()
+    script = "#!/bin/bash\nexec ttyd --once $(which claude)\n"
+    LAUNCHER_FILE.write_text(script)
+    LAUNCHER_FILE.chmod(0o755)
+
+
+def write_tunnel_files(subdomain: str, token: str) -> None:
+    """Write cloudflared token and config files."""
+    import json
+
+    cf_dir = Path.home() / ".cloudflared"
+    cf_dir.mkdir(parents=True, exist_ok=True)
+    (cf_dir / "token.json").write_text(json.dumps({"tunnel_token": token}))
+    config = f"tunnel: {subdomain}\ncredentials-file: {cf_dir/'token.json'}\n"
+    (cf_dir / "config.yml").write_text(config)
+
+
+def write_plist(token: str) -> None:
     PLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
     plist = f"""<?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
@@ -30,7 +56,8 @@ def write_plist(subdomain: str) -> None:
         <string>/usr/local/bin/cloudflared</string>
         <string>tunnel</string>
         <string>run</string>
-        <string>{subdomain}</string>
+        <string>--token</string>
+        <string>{token}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -64,6 +91,8 @@ def install_cloudflared():
     subprocess.run(["brew", "install", "cloudflared"], check=False)
 
 
+
+
 @click.group()
 def cli():
     """sshclaude command line interface."""
@@ -82,11 +111,12 @@ def init(email: str, domain: str | None, session: str):
         return
 
     install_cloudflared()
+    install_ttyd()
 
     console.print("[bold]Creating Cloudflare tunnel and access application...")
     subdomain = domain or f"{os.getlogin()}.sshclaude.com"
     with Progress() as progress:
-        t = progress.add_task("provision", total=4)
+        t = progress.add_task("provision", total=5)
         progress.update(t, advance=1)
         try:
             resp = requests.post(
@@ -106,11 +136,14 @@ def init(email: str, domain: str | None, session: str):
         "domain": subdomain,
         "session": session,
         "tunnel_id": data.get("tunnel_id"),
+        "tunnel_token": data.get("tunnel_token"),
         "dns_record_id": data.get("dns_record_id"),
         "access_app_id": data.get("access_app_id"),
     }
     write_config(config)
-    write_plist(subdomain)
+    write_tunnel_files(subdomain, config["tunnel_token"])
+    write_launcher()
+    write_plist(config["tunnel_token"])
     console.print("[green]Initialization complete!")
 
 
@@ -177,6 +210,7 @@ def uninstall():
 
     subprocess.run(["launchctl", "unload", str(PLIST_FILE)], check=False)
     PLIST_FILE.unlink(missing_ok=True)
+    LAUNCHER_FILE.unlink(missing_ok=True)
     CONFIG_FILE.unlink(missing_ok=True)
     console.print("[green]Uninstall complete.")
 
