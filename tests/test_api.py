@@ -29,7 +29,7 @@ def test_provision_cycle(monkeypatch):
     def fake_create_dns_record(subdomain, tid):
         return {"result": {"id": "dns"}}
 
-    def fake_create_access_app(email, subdomain):
+    def fake_create_access_app(login, subdomain):
         return {"result": {"id": "app"}}
 
     monkeypatch.setattr("sshclaude.cloudflare.create_tunnel", fake_create_tunnel)
@@ -44,7 +44,7 @@ def test_provision_cycle(monkeypatch):
     monkeypatch.setattr("sshclaude.cloudflare.delete_dns_record", lambda rec_id: None)
     monkeypatch.setattr("sshclaude.cloudflare.delete_tunnel", lambda tid: None)
 
-    resp = client.post("/provision", json={"email": "a@b.com", "subdomain": "test"})
+    resp = client.post("/provision", json={"github_id": "user1", "subdomain": "test"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["tunnel_id"] == "tid"

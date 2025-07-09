@@ -19,7 +19,7 @@ def verify_token(authorization: str = Header("")) -> None:
 
 
 class ProvisionRequest(BaseModel):
-    email: str
+    github_id: str
     subdomain: str
 
 
@@ -85,7 +85,7 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
     try:
         tunnel = cloudflare.create_tunnel(req.subdomain)
         dns = cloudflare.create_dns_record(req.subdomain, tunnel["result"]["id"])
-        access = cloudflare.create_access_app(req.email, req.subdomain)
+        access = cloudflare.create_access_app(req.github_id, req.subdomain)
         token = cloudflare.generate_tunnel_token(tunnel["result"]["id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -98,7 +98,7 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
     }
     with get_session() as db:
         provision = Provision(
-            email=req.email,
+            github_id=req.github_id,
             subdomain=req.subdomain,
             **data,
         )

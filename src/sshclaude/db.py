@@ -25,7 +25,7 @@ class Provision(Base):
     __tablename__ = "provisions"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, nullable=False)
+    github_id = Column(String, nullable=False)
     subdomain = Column(String, unique=True, nullable=False)
     tunnel_id = Column(String, nullable=False)
     tunnel_token = Column(String, nullable=False)
