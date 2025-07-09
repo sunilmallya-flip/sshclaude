@@ -18,110 +18,115 @@ def _require_env(name: str) -> str:
         raise MissingEnvError(f"Environment variable {name} is required but not set")
     return value
 
-API_BASE = "https://api.cloudflare.com/client/v4"
+
+ACCOUNT_ID = _require_env("CLOUDFLARE_ACCOUNT_ID")
+ZONE_ID = _require_env("CLOUDFLARE_ZONE_ID")
+
+# Base URLs
+ACCOUNT_BASE = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}"
+ZONE_BASE = f"https://api.cloudflare.com/client/v4/zones/{ZONE_ID}"
 
 
 def _headers() -> dict[str, str]:
-    token = _require_env("CLOUDFLARE_TOKEN")
-    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return {
+        "Authorization": f"Bearer {os.environ['CLOUDFLARE_TOKEN']}",
+        "Content-Type": "application/json",
+    }
 
 
 def create_tunnel(name: str) -> dict[str, Any]:
-    resp = requests.post(
-        f"{API_BASE}/tunnels",
-        json={"name": name},
-        headers=_headers(),
-        timeout=30,
-    )
+    url = f"{ACCOUNT_BASE}/tunnels"
+    payload = {"name": name}
+    print("[DEBUG] Creating tunnel:", payload)
+    resp = requests.post(url, json=payload, headers=_headers(), timeout=30)
+    if not resp.ok:
+        print("[CLOUDFLARE ERROR]", resp.status_code, resp.text)
     resp.raise_for_status()
     return resp.json()
 
 
 def delete_tunnel(tunnel_id: str) -> None:
-    resp = requests.delete(
-        f"{API_BASE}/tunnels/{tunnel_id}", headers=_headers(), timeout=30
-    )
+    url = f"{ACCOUNT_BASE}/tunnels/{tunnel_id}"
+    resp = requests.delete(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
 
 
 def create_dns_record(subdomain: str, tunnel_id: str) -> dict[str, Any]:
-    zone_id = _require_env("CLOUDFLARE_ZONE_ID")
+    name = subdomain.split(".")[0]
+
+    payload = {
+        "type": "CNAME",
+        "name": name,
+        "content": f"{tunnel_id}.cfargotunnel.com",
+        "proxied": True,
+    }
+
+    print("[DEBUG] Creating DNS record with payload:", payload)
+
     resp = requests.post(
-        f"{API_BASE}/zones/{zone_id}/dns_records",
-        json={
-            "type": "CNAME",
-            "name": subdomain,
-            "content": f"{tunnel_id}.cfargotunnel.com",
-        },
+        f"{ZONE_BASE}/dns_records",
+        json=payload,
         headers=_headers(),
         timeout=30,
     )
+    if not resp.ok:
+        print("[CLOUDFLARE ERROR]", resp.status_code, resp.text)
     resp.raise_for_status()
     return resp.json()
 
 
 def delete_dns_record(record_id: str) -> None:
-    zone_id = _require_env("CLOUDFLARE_ZONE_ID")
-    resp = requests.delete(
-        f"{API_BASE}/zones/{zone_id}/dns_records/{record_id}",
-        headers=_headers(),
-        timeout=30,
-    )
+    url = f"{ZONE_BASE}/dns_records/{record_id}"
+    resp = requests.delete(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
 
 
 def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
-    account_id = _require_env("CLOUDFLARE_ACCOUNT_ID")
-    resp = requests.post(
-        f"{API_BASE}/accounts/{account_id}/access/apps",
-        json={
-            "name": subdomain,
-            "domain": f"{subdomain}",
-            "session_duration": "15m",
-            "type": "ssh",
-        },
-        headers=_headers(),
-        timeout=30,
-    )
+    app_url = f"{ACCOUNT_BASE}/access/apps"
+
+    app_payload = {
+        "name": subdomain,
+        "domain": subdomain,
+        "session_duration": "15m",
+        "type": "ssh",
+    }
+
+    print("[DEBUG] Creating Access App:", app_payload)
+
+    resp = requests.post(app_url, json=app_payload, headers=_headers(), timeout=30)
     resp.raise_for_status()
     app = resp.json()
-    policy = requests.post(
-        f"{API_BASE}/accounts/{account_id}/access/apps/{app['result']['id']}/policies",
-        json={
-            "name": "default",
-            "decision": "allow",
-            # In a real implementation this would reference the GitHub identity
-            # provider. We model it as a rule keyed by login name.
-            "include": [{"github": [login]}],
-        },
-        headers=_headers(),
-        timeout=30,
-    )
+
+    policy_url = f"{ACCOUNT_BASE}/access/apps/{app['result']['id']}/policies"
+    policy_payload = {
+        "name": "default",
+        "decision": "allow",
+        "include": [{"github": [login]}],
+    }
+
+    print("[DEBUG] Attaching Access Policy:", policy_payload)
+
+    policy = requests.post(policy_url, json=policy_payload, headers=_headers(), timeout=30)
     policy.raise_for_status()
+
     return app
 
 
 def delete_access_app(app_id: str) -> None:
-    account_id = _require_env("CLOUDFLARE_ACCOUNT_ID")
-    resp = requests.delete(
-        f"{API_BASE}/accounts/{account_id}/access/apps/{app_id}",
-        headers=_headers(),
-        timeout=30,
-    )
+    url = f"{ACCOUNT_BASE}/access/apps/{app_id}"
+    resp = requests.delete(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
 
 
 def rotate_host_key(tunnel_id: str) -> None:
     """Trigger host key rotation via Cloudflare API."""
-    resp = requests.post(
-        f"{API_BASE}/tunnels/{tunnel_id}/hostkey/rotate",
-        headers=_headers(),
-        timeout=30,
-    )
+    url = f"{ACCOUNT_BASE}/tunnels/{tunnel_id}/hostkey/rotate"
+    resp = requests.post(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
 
 
 def generate_tunnel_token(tunnel_id: str) -> str:
     """Return a new connector token for the tunnel."""
-    # Real implementation would call Cloudflare API. Here we stub it.
+    # Replace this stub with real tunnel token creation API if needed
     return secrets.token_urlsafe(32)
+

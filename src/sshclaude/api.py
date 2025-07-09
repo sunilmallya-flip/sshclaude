@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()  # Automatically loads from .env in current working directory
+
 import os
 import secrets
 import uuid
+import requests
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -82,20 +86,48 @@ def login_status(uid: str) -> dict[str, bool]:
     "/provision", response_model=ProvisionResponse, dependencies=[Depends(verify_token)]
 )
 def provision(req: ProvisionRequest) -> ProvisionResponse:
-    try:
-        tunnel = cloudflare.create_tunnel(req.subdomain)
-        dns = cloudflare.create_dns_record(req.subdomain, tunnel["result"]["id"])
-        access = cloudflare.create_access_app(req.github_id, req.subdomain)
-        token = cloudflare.generate_tunnel_token(tunnel["result"]["id"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
+    try:
+        print("[DEBUG] Starting provision for", req.subdomain)
+        print("[DEBUG] Request body:", req.dict())
+
+        # 1. Create tunnel
+        tunnel = cloudflare.create_tunnel(req.subdomain)
+        tunnel_id = tunnel["result"]["id"]
+        print("[DEBUG] Created tunnel ID:", tunnel_id)
+
+        # 2. Create DNS record
+        dns = cloudflare.create_dns_record(req.subdomain, tunnel_id)
+        dns_id = dns["result"]["id"]
+        print("[DEBUG] Created DNS record ID:", dns_id)
+
+        # 3. Create Access app
+        access = cloudflare.create_access_app(req.github_id, req.subdomain)
+        access_id = access["result"]["id"]
+        print("[DEBUG] Created Access App ID:", access_id)
+
+        # 4. Generate tunnel token
+        token = cloudflare.generate_tunnel_token(tunnel_id)
+        print("[DEBUG] Tunnel token:", token)
+
+    except requests.RequestException as re:
+        # Cloudflare API likely failed — show detailed response
+        print("[ERROR] Cloudflare API error:", re)
+        raise HTTPException(status_code=502, detail=f"Cloudflare API error: {str(re)}")
+    except Exception as e:
+        # Unexpected crash — print stack trace
+        print("[ERROR] Internal error during /provision")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+    # Save to DB
     data = {
-        "tunnel_id": tunnel["result"]["id"],
+        "tunnel_id": tunnel_id,
         "tunnel_token": token,
-        "dns_record_id": dns["result"]["id"],
-        "access_app_id": access["result"]["id"],
+        "dns_record_id": dns_id,
+        "access_app_id": access_id,
     }
+
     with get_session() as db:
         provision = Provision(
             github_id=req.github_id,
@@ -104,6 +136,8 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
         )
         db.add(provision)
         db.commit()
+
+    print("[DEBUG] Provision record saved:", data)
     return ProvisionResponse(**data)
 
 
