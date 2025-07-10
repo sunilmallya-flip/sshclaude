@@ -294,19 +294,5 @@ def refresh_token():
     console.print("[green]Tunnel token refreshed successfully.")
 
 
-@app.post("/rotate-key/{subdomain}", dependencies=[Depends(verify_token)])
-def rotate_key(subdomain: str) -> dict[str, str]:
-    with get_session() as db:
-        provision = db.query(Provision).filter_by(subdomain=subdomain).first()
-        if not provision:
-            raise HTTPException(status_code=404, detail="unknown subdomain")
-        try:
-            new_token = cloudflare.generate_tunnel_token(provision.tunnel_id)
-            provision.tunnel_token = new_token
-            db.commit()
-            return {"status": "rotated", "tunnel_token": new_token}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
 if __name__ == "__main__":
     cli()
