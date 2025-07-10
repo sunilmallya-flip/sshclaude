@@ -115,8 +115,17 @@ def delete_dns_record(record_id: str) -> None:
     resp = requests.delete(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
 
+def _build_email_rule(address: str) -> dict:
+    """
+    Return a Cloudflare Access rule that allows a single email address.
+    """
+    return {
+        "email": {          # selector
+            "email": address.strip().lower()
+        }
+    }
 
-def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
+def create_access_app(email: str, subdomain: str) -> dict[str, Any]:
     headers = _headers()
     app_url = f"{ACCOUNT_BASE}/access/apps"
 
@@ -134,8 +143,8 @@ def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
 
     # 2. Create new Access App
     app_payload = {
-        "name": subdomain,  # human-readable label
-        "domain": subdomain,  # must match a valid DNS name in your zone
+        "name": subdomain,
+        "domain": subdomain,
         "session_duration": "15m",
         "type": "self_hosted",
         "app_launcher_visible": False
@@ -146,23 +155,22 @@ def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
     create_resp = requests.post(app_url, json=app_payload, headers=headers, timeout=30)
     print("[DEBUG] Access App creation response:", create_resp.status_code, create_resp.text)
 
-    # If this fails, you'll now see the exact reason
-    create_resp.raise_for_status()
+    if not create_resp.ok:
+        raise RuntimeError(f"Failed to create Access App: {create_resp.text}")
+
     app = create_resp.json()
+    app_id = app["result"]["id"]
 
-    # 3. Attach GitHub-based access policy
-    policy_url = f"{ACCOUNT_BASE}/access/apps/{app['result']['id']}/policies"
+    # 3. Attach access policy using verified GitHub email
+    policy_url = f"{ACCOUNT_BASE}/access/apps/{app_id}/policies"
 
-    idp_id = "675f9f71-51a6-440f-8043-d5a67fd316eb"
     policy_payload = {
         "name": "default",
         "precedence": 1,
         "decision": "allow",
-        "include": [{
-            "github": {
-                "identity_provider_id": idp_id
-            }
-        }],
+        "include": [
+            _build_email_rule(email)
+        ],
         "exclude": [],
         "require": []
     }
@@ -170,7 +178,10 @@ def create_access_app(login: str, subdomain: str) -> dict[str, Any]:
     print("[DEBUG] Attaching Access Policy:", policy_payload)
 
     policy_resp = requests.post(policy_url, json=policy_payload, headers=headers, timeout=30)
-    policy_resp.raise_for_status()
+    print("[DEBUG] Access Policy response:", policy_resp.status_code, policy_resp.text)
+
+    if not policy_resp.ok:
+        raise RuntimeError(f"Failed to attach Access policy: {policy_resp.text}")
 
     return app
 
@@ -186,3 +197,4 @@ def rotate_host_key(tunnel_id: str) -> None:
     url = f"{ACCOUNT_BASE}/tunnels/{tunnel_id}/hostkey/rotate"
     resp = requests.post(url, headers=_headers(), timeout=30)
     resp.raise_for_status()
+

@@ -50,6 +50,9 @@ class LoginSession(Base):
     token = Column(String, nullable=False)
     verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    email = Column(String, nullable=True)
+    github_id = Column(String, nullable=True)
+    github_login = Column(String, nullable=True)
 
 
 def init_db() -> None:
