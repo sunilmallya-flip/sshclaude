@@ -243,5 +243,88 @@ def lambda_handler(event, context):
     return handler(event, context)
 
 
+import webbrowser
+import time
+
+@cli.command()
+@click.option("--github", required=True, help="Your GitHub username (will be verified)")
+@click.option("--domain", help="Subdomain to use (default: <user>.sshclaude.com)")
+@click.option("--session", default="15m", help="Session TTL for Access")
+def init(github: str, domain: str | None, session: str):
+    """Initialize tunnel with GitHub-verified identity."""
+
+    config = read_config()
+    if config:
+        console.print("[yellow]sshclaude already initialized.")
+        return
+
+    install_cloudflared()
+    install_ttyd()
+
+    # 1. Start login session
+    console.print("[bold]Verifying GitHub identity via browser login...")
+    try:
+        resp = requests.post(f"{API_URL}/login", timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        console.print(f"[red]Failed to initiate login: {e}")
+        return
+
+    login = resp.json()
+    uid = login["url"].split("/")[-1]
+    token = login["token"]
+    login_url = f"https://sshclaude.dev{login['url']}?token={token}"
+
+    webbrowser.open(login_url)
+    console.print(f"[cyan]Waiting for verification... (open {login_url} if not auto-launched)")
+
+    # 2. Poll for status
+    for _ in range(60):
+        time.sleep(2)
+        try:
+            check = requests.get(f"{API_URL}/login/{uid}/status", timeout=5).json()
+            if check.get("verified"):
+                console.print("[green]GitHub identity verified.")
+                break
+        except Exception:
+            pass
+    else:
+        console.print("[red]Verification timed out.")
+        return
+
+    # 3. Provision resources
+    subdomain = domain or f"{os.getlogin()}.sshclaude.com"
+    console.print("[bold]Provisioning tunnel and access policy...")
+    try:
+        resp = requests.post(
+            f"{API_URL}/provision",
+            json={"github_id": github, "subdomain": subdomain},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        console.print(f"[red]Provisioning failed: {e}")
+        return
+
+    # 4. Save config and launch
+    config = {
+        "github_id": github,
+        "domain": subdomain,
+        "session": session,
+        "tunnel_id": data.get("tunnel_id"),
+        "tunnel_token": data.get("tunnel_token"),
+        "dns_record_id": data.get("dns_record_id"),
+        "access_app_id": data.get("access_app_id"),
+    }
+    write_config(config)
+    write_tunnel_files(subdomain, config["tunnel_token"])
+    write_launcher()
+    write_plist(config["tunnel_token"])
+    console.print("[green]Initialization complete!")
+
+
+
 if __name__ == "__main__":
-    main()
+    cli()
