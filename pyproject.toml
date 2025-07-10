@@ -3,7 +3,7 @@ name = "sshclaude"
 version = "0.1.0"
 description = "Zero-Install Browser SSH for Humans"
 authors = ["SSHCLAUDE Inc."]
-packages = [{ include = "sshclaude", from = "src" }]
+packages = [{ include = "sshclaude" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"

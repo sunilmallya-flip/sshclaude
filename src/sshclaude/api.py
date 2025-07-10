@@ -7,6 +7,7 @@ import os
 import secrets
 import uuid
 import requests
+import traceback
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
@@ -86,41 +87,50 @@ def login_status(uid: str) -> dict[str, bool]:
     "/provision", response_model=ProvisionResponse, dependencies=[Depends(verify_token)]
 )
 def provision(req: ProvisionRequest) -> ProvisionResponse:
-
     try:
         print("[DEBUG] Starting provision for", req.subdomain)
         print("[DEBUG] Request body:", req.dict())
 
-        # 1. Create tunnel
+        # 1. Create or reuse tunnel
         tunnel = cloudflare.create_tunnel(req.subdomain)
         tunnel_id = tunnel["result"]["id"]
-        print("[DEBUG] Created tunnel ID:", tunnel_id)
+        print("[DEBUG] Tunnel ID:", tunnel_id)
 
-        # 2. Create DNS record
+        # 2. Extract tunnel token (only present at creation time)
+        if "tunnel_token" in tunnel:
+            token = tunnel["tunnel_token"]
+        else:
+            print("[DEBUG] Tunnel already exists. Attempting to fetch token from DB...")
+            with get_session() as db:
+                existing = db.query(Provision).filter_by(subdomain=req.subdomain).first()
+                if existing and existing.tunnel_token:
+                    token = existing.tunnel_token
+                    print("[DEBUG] Retrieved tunnel token from DB.")
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Tunnel exists but no token found. Please uninstall and try again.",
+                    )
+
+        # 3. Create or reuse DNS record
         dns = cloudflare.create_dns_record(req.subdomain, tunnel_id)
         dns_id = dns["result"]["id"]
-        print("[DEBUG] Created DNS record ID:", dns_id)
+        print("[DEBUG] DNS record ID:", dns_id)
 
-        # 3. Create Access app
+        # 4. Create or reuse Access App
         access = cloudflare.create_access_app(req.github_id, req.subdomain)
         access_id = access["result"]["id"]
-        print("[DEBUG] Created Access App ID:", access_id)
-
-        # 4. Generate tunnel token
-        token = cloudflare.generate_tunnel_token(tunnel_id)
-        print("[DEBUG] Tunnel token:", token)
+        print("[DEBUG] Access App ID:", access_id)
 
     except requests.RequestException as re:
-        # Cloudflare API likely failed — show detailed response
         print("[ERROR] Cloudflare API error:", re)
         raise HTTPException(status_code=502, detail=f"Cloudflare API error: {str(re)}")
     except Exception as e:
-        # Unexpected crash — print stack trace
         print("[ERROR] Internal error during /provision")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
-    # Save to DB
+    # 5. Save provision record to DB
     data = {
         "tunnel_id": tunnel_id,
         "tunnel_token": token,
@@ -129,12 +139,13 @@ def provision(req: ProvisionRequest) -> ProvisionResponse:
     }
 
     with get_session() as db:
-        provision = Provision(
-            github_id=req.github_id,
-            subdomain=req.subdomain,
-            **data,
-        )
-        db.add(provision)
+        existing = db.query(Provision).filter_by(subdomain=req.subdomain).first()
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+        else:
+            provision = Provision(github_id=req.github_id, subdomain=req.subdomain, **data)
+            db.add(provision)
         db.commit()
 
     print("[DEBUG] Provision record saved:", data)
