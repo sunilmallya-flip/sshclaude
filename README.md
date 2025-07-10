@@ -121,6 +121,71 @@ Local Claude CLI (wrapped in ttyd, single command only)
 
 ---
 
+
+flowchart TD
+    %% ─────────────────────────────────────────
+    %%  Legend / groupings
+    subgraph LOCAL [Developerʼs laptop]
+        CLI[[sshclaude CLI\n(`sshclaude init`)]]
+        TTYD[ttyd ⇄ Claude CLI]
+        Launchd([cloudflared launchd])
+    end
+
+    subgraph API [sshclaude API (api.sshclaude.dev)]
+        Login[/POST /login/]
+        GitHubCB[/GET /oauth/callback/]
+        WhoAmI[/GET /login/{uid}/whoami/]
+        Provision[/POST /provision/]
+        SQLite[(SQLite DB)]
+    end
+
+    subgraph GITHUB [GitHub]
+        GHLogin[GitHub OAuth\n(login & consent)]
+    end
+
+    subgraph CF_API[Cloudflare API]
+        CFTunnel[Tunnel\ncreate/reuse]
+        CFDNS[DNS CNAME]
+        CFApp[Access App]
+        CFPolicy[Policy\n(email rule)]
+    end
+
+    subgraph CF_EDGE[Cloudflare Edge]
+        CFProxy[cloudflared tunnel\n(wss <--> origin)]
+        Access[Cloudflare Access\n(email check)]
+    end
+    %% ─────────────────────────────────────────
+    %%  Flow
+    CLI --1️⃣ POST /login --> Login
+    Login --session {uid,token,client_id}--> CLI
+
+    CLI --2️⃣ open browser\n(GitHub OAuth URL)--> GHLogin
+    GHLogin --code,state--> GitHubCB
+    GitHubCB -->|verify email| SQLite
+    GitHubCB --> CLI
+
+    CLI --3️⃣ GET /whoami --> WhoAmI
+    WhoAmI -->|verified email| CLI
+
+    CLI --4️⃣ POST /provision --> Provision
+    Provision --> CFTunnel
+    Provision --> CFDNS
+    Provision --> CFApp
+    CFApp --> CFPolicy
+    CFTunnel -->|token| CLI
+    Provision --> SQLite
+
+    CLI --5️⃣ write cloudflared\nconfig & plist--> Launchd
+    Launchd --> CFProxy
+
+    BrowserUser[(Any browser)] -->|https://<subdomain>.sshclaude.dev| Access
+    Access --GitHub login if needed--> GHLogin
+    Access --> CFProxy
+    CFProxy -->|http://localhost:7681| TTYD
+    TTYD --> BrowserUser
+
+
+
 ## ✅ Status: Confirmed Working
 
 * Claude running locally via ttyd

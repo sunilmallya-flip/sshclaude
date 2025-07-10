@@ -1,5 +1,7 @@
 import os
 import subprocess
+import time
+import webbrowser
 from pathlib import Path
 
 import click
@@ -11,7 +13,7 @@ from rich.progress import Progress
 CONFIG_FILE = Path.home() / ".sshclaude" / "config.yaml"
 LAUNCHER_FILE = Path.home() / ".sshclaude" / "launch_claude.sh"
 PLIST_FILE = Path.home() / "Library/LaunchAgents" / "com.sshclaude.tunnel.plist"
-API_URL = os.getenv("SSHCLAUDE_API", "http://localhost:8000")
+API_URL = os.getenv("SSHCLAUDE_API", "https://api.sshclaude.dev")
 console = Console()
 
 
@@ -20,33 +22,22 @@ def ensure_config_dir():
 
 
 def install_ttyd():
-    """Install ttyd via Homebrew if not already installed."""
     if shutil.which("ttyd"):
         console.print("[green]ttyd already installed.")
         return
-
     console.print("[bold]Installing ttyd via Homebrew...")
-    subprocess.run(
-        ["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "ttyd"],
-        check=False
-    )
+    subprocess.run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "ttyd"], check=False)
 
 
 def install_cloudflared():
-    """Install cloudflared via Homebrew if not already installed."""
     if shutil.which("cloudflared"):
         console.print("[green]cloudflared already installed.")
         return
-
     console.print("[bold]Installing cloudflared via Homebrew...")
-    subprocess.run(
-        ["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "cloudflared"],
-        check=False
-    )
+    subprocess.run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "cloudflared"], check=False)
 
 
 def write_launcher() -> None:
-    """Create a launcher script that runs Claude via ttyd."""
     ensure_config_dir()
     script = "#!/bin/bash\nexec ttyd --once $(which claude)\n"
     LAUNCHER_FILE.write_text(script)
@@ -54,9 +45,7 @@ def write_launcher() -> None:
 
 
 def write_tunnel_files(subdomain: str, token: str) -> None:
-    """Write cloudflared token and config files."""
     import json
-
     cf_dir = Path.home() / ".cloudflared"
     cf_dir.mkdir(parents=True, exist_ok=True)
     (cf_dir / "token.json").write_text(json.dumps({"tunnel_token": token}))
@@ -91,7 +80,6 @@ def write_plist(token: str) -> None:
 
 def write_config(data: dict):
     import yaml
-
     ensure_config_dir()
     with CONFIG_FILE.open("w") as f:
         yaml.safe_dump(data, f)
@@ -99,7 +87,6 @@ def write_config(data: dict):
 
 def read_config() -> dict:
     import yaml
-
     if CONFIG_FILE.exists():
         with CONFIG_FILE.open() as f:
             return yaml.safe_load(f) or {}
@@ -110,13 +97,14 @@ def read_config() -> dict:
 def cli():
     """sshclaude command line interface."""
 
-
 @cli.command()
-@click.option("--github", required=True, help="Your GitHub login for SSO")
-@click.option("--domain", help="Custom domain if not using default")
-@click.option("--session", default="15m", help="Session TTL")
+@click.option("--github", required=True, help="Your GitHub login (used for display only)")
+@click.option("--domain", help="Subdomain to use (default: <user>.sshclaude.com)")
+@click.option("--session", default="15m", help="Session TTL for Access")
 def init(github: str, domain: str | None, session: str):
-    """Bootstrap Cloudflare Tunnel and Access app."""
+    """Initialize a Claude tunnel after verifying GitHub identity."""
+
+    console.print("[blue]sshclaude init started")
 
     config = read_config()
     if config:
@@ -126,23 +114,87 @@ def init(github: str, domain: str | None, session: str):
     install_cloudflared()
     install_ttyd()
 
-    console.print("[bold]Creating Cloudflare tunnel and access application...")
-    subdomain = domain or f"{os.getlogin()}.sshclaude.com"
-    with Progress() as progress:
-        t = progress.add_task("provision", total=5)
-        progress.update(t, advance=1)
+    console.print("[bold]Verifying GitHub identity via browser login...")
+    console.print(f"[cyan]Calling: {API_URL}/login")
+    try:
+        resp = requests.post(f"{API_URL}/login", timeout=10)
+        resp.raise_for_status()
+        login = resp.json()
+        client_id = login["client_id"]
+    except Exception as e:
+        console.print(f"[red]Failed to initiate login: {e}")
+        return
+
+    uid = login["url"].split("/")[-1]
+    token = login["token"]
+
+    import base64
+    import json
+
+    state_obj = {"uid": uid, "token": token}
+    state = base64.urlsafe_b64encode(json.dumps(state_obj).encode()).decode()
+
+    login_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={client_id}"
+        f"&redirect_uri=https://api.sshclaude.dev/oauth/callback"
+        f"&state={state}"
+        f"&allow_signup=false"
+        f"&scope=user:email"
+    )
+
+    webbrowser.open(login_url)
+    console.print(f"[cyan]Waiting for verification... (or open {login_url} manually)")
+
+    for _ in range(60):
+        time.sleep(2)
         try:
-            resp = requests.post(
-                f"{API_URL}/provision",
-                json={"github_id": github, "subdomain": subdomain},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:  # requests.exceptions.RequestException
-            console.print(f"[red]Provisioning failed: {e}")
+            check = requests.get(f"{API_URL}/login/{uid}/status", timeout=5).json()
+            if check.get("verified"):
+                console.print("[green]GitHub identity verified.")
+                break
+        except Exception:
+            pass
+    else:
+        console.print("[red]Verification timed out.")
+        return
+
+    # 🔐 Fetch verified email
+    try:
+        userinfo = requests.get(
+            f"{API_URL}/login/{uid}/whoami",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        userinfo.raise_for_status()
+        verified_email = userinfo.json().get("email")
+        if not verified_email:
+            console.print("[red]Server did not return a verified email.")
             return
-        progress.update(t, advance=3)
+        console.print(f"[green]Verified email: {verified_email}")
+    except Exception as e:
+        console.print(f"[red]Failed to fetch verified email: {e}")
+        return
+
+    subdomain = domain or f"{os.getlogin()}.sshclaude.com"
+    console.print("[bold]Provisioning tunnel and access policy...")
+
+    try:
+        resp = requests.post(
+            f"{API_URL}/provision",
+            json={
+                "github_id": github,
+                "email": verified_email,
+                "subdomain": subdomain
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        console.print(f"[red]Provisioning failed: {e}")
+        return
 
     config = {
         "github_id": github,
@@ -153,6 +205,7 @@ def init(github: str, domain: str | None, session: str):
         "dns_record_id": data.get("dns_record_id"),
         "access_app_id": data.get("access_app_id"),
     }
+
     write_config(config)
     write_tunnel_files(subdomain, config["tunnel_token"])
     write_launcher()
@@ -162,7 +215,6 @@ def init(github: str, domain: str | None, session: str):
 
 @cli.command()
 def status():
-    """Show tunnel and Access health."""
     config = read_config()
     if not config:
         console.print("[red]sshclaude not initialized.")
@@ -179,27 +231,8 @@ def status():
         console.print(f"[red]Failed to query status: {e}")
 
 
-@cli.command(name="rotate-key")
-def rotate_key():
-    """Regenerate SSH host key and update Access."""
-    config = read_config()
-    if not config:
-        console.print("[red]sshclaude not initialized.")
-        return
-    console.print("[bold]Rotating SSH host key...")
-    subprocess.run(["ssh-keygen", "-f", str(Path.home() / ".ssh" / "sshclaude"), "-N", ""], check=False)
-    subdomain = config.get("domain")
-    try:
-        resp = requests.post(f"{API_URL}/rotate-key/{subdomain}", timeout=30)
-        resp.raise_for_status()
-        console.print("[green]Host key rotated.")
-    except Exception as e:
-        console.print(f"[red]Failed to notify server: {e}")
-
-
 @cli.command()
 def uninstall():
-    """Remove tunnel, launchd service, and DNS."""
     config = read_config()
     if not config:
         console.print("[red]sshclaude not initialized.")
@@ -210,9 +243,7 @@ def uninstall():
         t = progress.add_task("cleanup", total=3)
         progress.update(t, advance=1)
         try:
-            resp = requests.delete(
-                f"{API_URL}/provision/{subdomain}", timeout=30
-            )
+            resp = requests.delete(f"{API_URL}/provision/{subdomain}", timeout=30)
             if resp.status_code != 200:
                 console.print(f"[red]Delete failed: {resp.text}")
                 return
@@ -227,6 +258,55 @@ def uninstall():
     CONFIG_FILE.unlink(missing_ok=True)
     console.print("[green]Uninstall complete.")
 
+@cli.command(name="refresh-token")
+def refresh_token():
+    """Refresh Cloudflare tunnel token and update local config."""
+    config = read_config()
+    if not config:
+        console.print("[red]sshclaude is not initialized.")
+        return
+
+    subdomain = config.get("domain")
+    console.print(f"[bold]Refreshing tunnel token for {subdomain}...")
+
+    try:
+        resp = requests.post(f"{API_URL}/rotate-key/{subdomain}", timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        new_token = data.get("tunnel_token")
+        if not new_token:
+            console.print("[red]No token returned from server.")
+            return
+    except Exception as e:
+        console.print(f"[red]Failed to refresh token: {e}")
+        return
+
+    # Update config and files
+    config["tunnel_token"] = new_token
+    write_config(config)
+    write_tunnel_files(subdomain, new_token)
+
+    # Reload tunnel
+    subprocess.run(["launchctl", "unload", str(PLIST_FILE)], check=False)
+    write_plist(new_token)
+    subprocess.run(["launchctl", "load", str(PLIST_FILE)], check=False)
+
+    console.print("[green]Tunnel token refreshed successfully.")
+
+
+@app.post("/rotate-key/{subdomain}", dependencies=[Depends(verify_token)])
+def rotate_key(subdomain: str) -> dict[str, str]:
+    with get_session() as db:
+        provision = db.query(Provision).filter_by(subdomain=subdomain).first()
+        if not provision:
+            raise HTTPException(status_code=404, detail="unknown subdomain")
+        try:
+            new_token = cloudflare.generate_tunnel_token(provision.tunnel_id)
+            provision.tunnel_token = new_token
+            db.commit()
+            return {"status": "rotated", "tunnel_token": new_token}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
 if __name__ == "__main__":
     cli()
