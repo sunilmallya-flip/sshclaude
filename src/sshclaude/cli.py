@@ -341,7 +341,11 @@ def uninstall():
         t = progress.add_task("cleanup", total=3)
         progress.update(t, advance=1)
         try:
-            resp = requests.delete(f"{API_URL}/provision/{subdomain}", timeout=30)
+            resp = requests.delete(
+                f"{API_URL}/provision/{subdomain}",
+                json={"tunnel_token": config.get("tunnel_token")},
+                timeout=30,
+            )
             if resp.status_code != 200:
                 console.print(f"[red]Delete failed: {resp.text}")
                 return

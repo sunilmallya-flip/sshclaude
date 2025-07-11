@@ -62,7 +62,7 @@ def test_provision_cycle(monkeypatch):
     resp = client.post("/rotate-key/test")
     assert resp.status_code == 200
 
-    resp = client.delete("/provision/test")
+    resp = client.delete("/provision/test", json={"tunnel_token": data["tunnel_token"]})
     assert resp.status_code == 200
 
     resp = client.get("/provision/test")

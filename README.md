@@ -97,7 +97,7 @@ sequenceDiagram
    * `sshclaude status` – check the tunnel and Access app health
    * `sshclaude refresh-token` – rotate the Cloudflare tunnel token
    * `sshclaude stop` – stop the running tunnel and ttyd session without deleting anything 
-   * `sshclaude uninstall` – remove all Cloudflare resources and local files
+  * `sshclaude uninstall` – remove all Cloudflare resources and local files (requires your tunnel token)
 
 When `sshclaude init` runs it will:
 

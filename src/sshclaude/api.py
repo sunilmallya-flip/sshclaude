@@ -49,6 +49,10 @@ class LoginSessionResponse(BaseModel):
 class TokenRequest(BaseModel):
     token: str
 
+
+class DeleteRequest(BaseModel):
+    tunnel_token: str
+
 app = FastAPI(title="sshclaude Provisioning API")
 init_db()
 
@@ -268,11 +272,13 @@ def get_provision(subdomain: str) -> ProvisionResponse:
 
 
 @app.delete("/provision/{subdomain}", dependencies=[Depends(verify_token)])
-def delete_provision(subdomain: str) -> dict[str, str]:
+def delete_provision(subdomain: str, req: DeleteRequest) -> dict[str, str]:
     with get_session() as db:
         provision = db.query(Provision).filter_by(subdomain=subdomain).first()
         if not provision:
             raise HTTPException(status_code=404, detail="unknown subdomain")
+        if provision.tunnel_token != req.tunnel_token:
+            raise HTTPException(status_code=403, detail="invalid token")
         try:
             cloudflare.delete_access_app(provision.access_app_id)
             cloudflare.delete_dns_record(provision.dns_record_id)
