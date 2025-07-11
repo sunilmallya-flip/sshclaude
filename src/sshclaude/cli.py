@@ -3,10 +3,10 @@ import subprocess
 import time
 import webbrowser
 from pathlib import Path
-
-import click
+import secrets
 import shutil
 import requests
+import click
 from rich.console import Console
 from rich.progress import Progress
 
@@ -18,7 +18,7 @@ console = Console()
 
 
 def ensure_config_dir():
-    (CONFIG_FILE.parent).mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def install_ttyd():
@@ -37,24 +37,50 @@ def install_cloudflared():
     subprocess.run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "install", "cloudflared"], check=False)
 
 
-def write_launcher() -> None:
+def write_launcher(token: str) -> None:
     ensure_config_dir()
-    script = "#!/bin/bash\nexec ttyd --once $(which claude)\n"
-    LAUNCHER_FILE.write_text(script)
-    LAUNCHER_FILE.chmod(0o755)
+    token_file = CONFIG_FILE.parent / "session_token"
+    token_file.write_text(token)
 
+    guard_script = CONFIG_FILE.parent / "token_guard.sh"
+    guard_script.write_text(f"""#!/bin/bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+nvm use node > /dev/null
+EXPECTED=$(cat "{token_file}")
+read -p "Token: " INPUT
+if [ "$INPUT" != "$EXPECTED" ]; then
+  echo "Unauthorized"
+  exit 1
+fi
+exec claude
+""")
+    guard_script.chmod(0o755)
+
+    LAUNCHER_FILE.write_text(f"""#!/bin/bash
+exec ttyd --once {guard_script}
+""")
+    LAUNCHER_FILE.chmod(0o755)
 
 def write_tunnel_files(subdomain: str, token: str) -> None:
     import json
     cf_dir = Path.home() / ".cloudflared"
     cf_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write token
     (cf_dir / "token.json").write_text(json.dumps({"tunnel_token": token}))
-    config = f"tunnel: {subdomain}\ncredentials-file: {cf_dir/'token.json'}\n"
-    (cf_dir / "config.yml").write_text(config)
+
+    # Write config with ingress rules
+    config_text = f"""tunnel: {subdomain}
+credentials-file: {cf_dir/'token.json'}
+ingress:
+  - service: http://localhost:7681
+"""
+
+    (cf_dir / "config.yml").write_text(config_text)
 
 
 def _launchctl(action: str, plist: Path) -> None:
-    """Run launchctl commands in the user domain if available."""
     if not shutil.which("launchctl"):
         return
     domain = f"gui/{os.getuid()}"
@@ -112,26 +138,29 @@ def read_config() -> dict:
 def cli():
     """sshclaude command line interface."""
 
+
 @cli.command()
 @click.option("--github", required=True, help="Your GitHub login (used for display only)")
 @click.option("--domain", help="Subdomain to use (default: <user>.sshclaude.com)")
 @click.option("--session", default="15m", help="Session TTL for Access")
-def init(github: str, domain: str | None, session: str):
+@click.option("--token", help="Optional session token to unlock terminal (only stored locally)")
+def init(github: str, domain: str | None, session: str, token: str | None):
     """Initialize a Claude tunnel after verifying GitHub identity."""
 
     console.print("[blue]sshclaude init started")
 
     config = read_config()
     if config:
-        console.print("[yellow]Existing configuration found - reusing token.")
+        console.print("[yellow]Existing configuration found - reusing tunnel token.")
         subdomain = config.get("domain")
-        token = config.get("tunnel_token")
-        if not subdomain or not token:
+        tunnel_token = config.get("tunnel_token")
+        if not subdomain or not tunnel_token:
             console.print("[red]Configuration incomplete. Remove ~/.sshclaude and re-run init.")
             return
-        write_tunnel_files(subdomain, token)
-        write_launcher()
-        write_plist(token)
+        session_token = token.strip() if token else (CONFIG_FILE.parent / "session_token").read_text().strip()
+        write_tunnel_files(subdomain, tunnel_token)
+        write_launcher(session_token)
+        write_plist(tunnel_token)
         console.print(f"[green]sshclaude started at https://{subdomain}")
         return
 
@@ -139,7 +168,6 @@ def init(github: str, domain: str | None, session: str):
     install_ttyd()
 
     console.print("[bold]Verifying GitHub identity via browser login...")
-    console.print(f"[cyan]Calling: {API_URL}/login")
     try:
         resp = requests.post(f"{API_URL}/login", timeout=10)
         resp.raise_for_status()
@@ -150,12 +178,12 @@ def init(github: str, domain: str | None, session: str):
         return
 
     uid = login["url"].split("/")[-1]
-    token = login["token"]
+    api_token = login["token"]
 
     import base64
     import json
 
-    state_obj = {"uid": uid, "token": token}
+    state_obj = {"uid": uid, "token": api_token}
     state = base64.urlsafe_b64encode(json.dumps(state_obj).encode()).decode()
 
     login_url = (
@@ -183,11 +211,10 @@ def init(github: str, domain: str | None, session: str):
         console.print("[red]Verification timed out.")
         return
 
-    # 🔐 Fetch verified email
     try:
         userinfo = requests.get(
             f"{API_URL}/login/{uid}/whoami",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {api_token}"},
             timeout=10,
         )
         userinfo.raise_for_status()
@@ -211,7 +238,7 @@ def init(github: str, domain: str | None, session: str):
                 "email": verified_email,
                 "subdomain": subdomain
             },
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {api_token}"},
             timeout=30,
         )
         resp.raise_for_status()
@@ -220,46 +247,28 @@ def init(github: str, domain: str | None, session: str):
         console.print(f"[red]Provisioning failed: {e}")
         return
 
+    tunnel_token = data.get("tunnel_token")
     config = {
         "github_id": github,
         "domain": subdomain,
         "session": session,
         "tunnel_id": data.get("tunnel_id"),
-        "tunnel_token": data.get("tunnel_token"),
+        "tunnel_token": tunnel_token,
         "dns_record_id": data.get("dns_record_id"),
         "access_app_id": data.get("access_app_id"),
     }
 
     write_config(config)
-    write_tunnel_files(subdomain, config["tunnel_token"])
-    write_launcher()
-    write_plist(config["tunnel_token"])
-    console.print("[green]Initialization complete!")
-    console.print()
-    console.print(f"[bold green]Tunnel is now live at:[/] https://{subdomain}")
-    console.print(f"[bold yellow]To connect:[/]")
-    console.print(f"  [blue]ssh root@{subdomain}[/]")
-    console.print()
-    console.print("[dim]This command will launch Claude in your terminal via ttyd + SSH tunnel.[/]")
-    console.print("[dim]If this is your first time, visit the URL above in a browser and login with GitHub to activate Access.[/]")
 
+    session_token = token.strip() if token else secrets.token_urlsafe(32)
+    if not token:
+        console.print(f"[bold yellow]Generated session token:[/] {session_token}")
+        console.print("[dim]This token is required to unlock Claude in your browser.[/]")
 
-@cli.command()
-def status():
-    config = read_config()
-    if not config:
-        console.print("[red]sshclaude not initialized.")
-        return
-    console.print("[bold]Checking tunnel status...")
-    subdomain = config.get("domain")
-    try:
-        resp = requests.get(f"{API_URL}/provision/{subdomain}", timeout=15)
-        if resp.status_code == 200:
-            console.print("Tunnel is running. Access app healthy.")
-        else:
-            console.print("[red]Provision not found on server.")
-    except Exception as e:
-        console.print(f"[red]Failed to query status: {e}")
+    write_tunnel_files(subdomain, tunnel_token)
+    write_launcher(session_token)
+    write_plist(tunnel_token)
+    console.print(f"[green]Initialization complete! Visit: https://{subdomain}")
 
 
 @cli.command()
@@ -354,6 +363,6 @@ def refresh_token():
 
     console.print("[green]Tunnel token refreshed successfully.")
 
-
 if __name__ == "__main__":
     cli()
+
