@@ -17,61 +17,26 @@
 
 ---
 
-## 🧑‍💻 What the End User Does (sshclaude client setup)
+## 🚀 Quick Start
 
-> All of this will be fully automated by the `sshclaude` CLI.
+1. `pip install sshclaude`
+2. `sshclaude init --github <your-login>` and follow the browser login to verify your GitHub account.
+3. Visit the printed URL (e.g. `https://<user>.sshclaude.com`) to access Claude securely in your browser.
+4. Optional commands:
+   * `sshclaude status` – check the tunnel and Access app health
+   * `sshclaude refresh-token` – rotate the Cloudflare tunnel token
+   * `sshclaude uninstall` – remove all Cloudflare resources and local files
 
-### 🔹 Step-by-step (manual for now, automated soon)
+## ⚙️ What `sshclaude` Does For You
 
-1. **Install prerequisites**:
+Running `sshclaude init` now performs the full setup:
 
-```bash
-brew install cloudflared ttyd
-pip install sshclaude  # if CLI wrapper is provided
-```
+1. Installs `cloudflared` and `ttyd` if missing
+2. Verifies your GitHub identity via the provisioning API
+3. Creates or reuses the Cloudflare tunnel and Access policy
+4. Writes a launcher script and LaunchAgent plist
+5. Starts the tunnel and prints the public URL
 
-2. **Download config from SSHCLAUDE**:
-
-* Receive a `token.json` and a suggested `config.yml`
-* Place them in `~/.cloudflared/`
-
-3. **Start Claude securely**:
-
-```bash
-ttyd --once /usr/local/bin/claude  # or ./run_claude.sh
-```
-
-4. **Run the secure tunnel**:
-
-```bash
-cloudflared tunnel run --token $(cat ~/.cloudflared/token.json | jq -r .tunnel_token)
-```
-
-5. **Verify it's working**:
-
-* Visit `https://your-name.sshclaude.com` in any browser
-* Log in with your GitHub account + MFA via Cloudflare Access
-* Claude CLI is fully interactive in the browser
-
----
-
-## ⚙️ What the `sshclaude` CLI Will Automate
-
-When a user runs:
-
-```bash
-sshclaude init --github <your-login>
-```
-
-The CLI will:
-
-1. Install or upgrade `cloudflared` and `ttyd`
-2. Download and place the correct `token.json` and `config.yml`
-3. Write a launcher script to start Claude via `ttyd`
-4. Launch `cloudflared` with the proper token
-5. Print the public tunnel URL and test connectivity
-
-> The CLI may also support autostart via launchd (macOS), systemd (Linux), or login hook
 
 ---
 
