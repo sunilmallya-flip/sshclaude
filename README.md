@@ -1,75 +1,31 @@
 # **SSHCLAUDE** – Secure Claude Terminal in Your Browser
 
-> **Mission**  Deliver a zero-trust, browser-accessible Claude CLI with no open ports, no full shell exposure, and bi-directional interaction secured by Cloudflare Tunnel and Access.
+> **Mission** Deliver a zero-trust, browser-accessible Claude CLI with no open ports, no full shell exposure, and bi-directional interaction secured by Cloudflare Tunnel and Access.
 
 ---
 
-## ✨ Key Features
+## 1. What the Project Is About
 
-| Capability                  | Details                                                                                   |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
+SSHCLAUDE lets you interact with Claude from any browser without ever exposing a local shell or public ports. It spins up a local Claude CLI wrapped in `ttyd`, then connects that single command to the internet through a short-lived Cloudflare Tunnel gated by Cloudflare Access.
+
+---
+
+## 2. Features
+
+| Capability                  | Details |
+| --------------------------- | ------- |
 | **Zero-port networking**    | Uses Cloudflare Tunnel to route HTTPS traffic to localhost without exposing public ports. |
-| **Browser-based Claude**    | Launches Claude CLI via `ttyd` in a web terminal; not a full shell or SSH session.        |
-| **Access control**          | Only approved GitHub logins or IPs can access using Cloudflare Access + MFA.              |
-| **No SSH exposure**         | Runs Claude directly via a CLI wrapper; does not expose bash or shell access.             |
-| **Launch-once tunnel**      | Uses dashboard-created token to launch tunnel with `cloudflared --token`                  |
-| **Cloudflare Access gated** | MFA, session TTL, GitHub login or IP-based rules apply before tunnel is reached.          |
+| **Browser-based Claude**    | Launches Claude CLI via `ttyd` in a web terminal; not a full shell or SSH session. |
+| **Access control**          | Only approved GitHub logins or IPs can access using Cloudflare Access + MFA. |
+| **No SSH exposure**         | Runs Claude directly via a CLI wrapper; does not expose bash or shell access. |
+| **Launch-once tunnel**      | Uses dashboard-created token to launch tunnel with `cloudflared --token`. |
+| **Cloudflare Access gated** | MFA, session TTL, GitHub login or IP-based rules apply before tunnel is reached. |
 
 ---
 
-## 🚀 Quick Start
+## 3. Architecture
 
-1. `pip install sshclaude`
-2. `sshclaude init --github <your-login>` and follow the browser login to verify your GitHub account.
-3. Visit the printed URL (e.g. `https://<user>.sshclaude.com`) to access Claude securely in your browser.
-4. Optional commands:
-   * `sshclaude status` – check the tunnel and Access app health
-   * `sshclaude refresh-token` – rotate the Cloudflare tunnel token
-   * `sshclaude uninstall` – remove all Cloudflare resources and local files
-
-## ⚙️ What `sshclaude` Does For You
-
-Running `sshclaude init` now performs the full setup:
-
-1. Installs `cloudflared` and `ttyd` if missing
-2. Verifies your GitHub identity via the provisioning API
-3. Creates or reuses the Cloudflare tunnel and Access policy
-4. Writes a launcher script and LaunchAgent plist
-5. Starts the tunnel and prints the public URL
-
-
----
-
-## 🛠 TODO: SSHCLAUDE Server Responsibilities
-
-The `sshclaude.com` provisioning backend will handle:
-
-| Task                        | Description                                                               |
-| --------------------------- | ------------------------------------------------------------------------- |
-| **Tunnel provisioning**     | Use Cloudflare API to create a new tunnel (named or token-based)          |
-| **DNS routing**             | Create CNAME: `<user>.sshclaude.dev` → `tunnel-id.cfargotunnel.com`       |
-| **Access app creation**     | Define a Cloudflare Access application for each tunnel                    |
-| **Policy enforcement**      | Include only allowed GitHub logins or IPs + enforce MFA                   |
-| **Token issuance**          | Return connector `*.json` token to CLI for `cloudflared --token` usage    |
-| **Audit tracking**          | Log login attempts, success, session durations, and activity metadata     |
-| **Token revocation API**    | Invalidate credentials and remove public hostnames if revoked/uninstalled |
-| **Expiration enforcement**  | Optionally expire tunnels on TTL (e.g., 24 hours unless refreshed)        |
-| **Multi-tenant separation** | Isolate per-user tunnels, Access apps, and DNS mappings                   |
-
----
-
-## 🛡 Security Summary for End User
-
-| Area         | Secured How                                                 |
-| ------------ | ----------------------------------------------------------- |
-| Shell access | ❌ Not exposed; Claude CLI only                              |
-| Tunnel auth  | 🔐 Token-based; no need for cert.pem or SSH keys            |
-| Session TTL  | ⏱️ Short-lived sessions (e.g., 15 min) enforced by Access   |
-| User control | ✅ User runs `ttyd` and Claude locally; nothing runs as root |
-
----
-
-## 🏗 Architecture Overview
+From a user's point of view, everything flows through Cloudflare before touching your local machine:
 
 ```text
 Browser (User)
@@ -84,9 +40,10 @@ Cloudflare Tunnel (cloudflared with token)
 Local Claude CLI (wrapped in ttyd, single command only)
 ```
 
----
+<details>
+<summary>Full sequence diagram</summary>
 
-
+```mermaid
 flowchart TD
     %% ─────────────────────────────────────────
     %%  Legend / groupings
@@ -148,10 +105,62 @@ flowchart TD
     Access --> CFProxy
     CFProxy -->|http://localhost:7681| TTYD
     TTYD --> BrowserUser
+```
 
+</details>
 
+---
 
-## ✅ Status: Confirmed Working
+## 4. How to Get Started
+
+1. `pip install sshclaude`
+2. Run `sshclaude init --github <your-login>` and follow the browser login to verify your GitHub account.
+3. Visit the printed URL (e.g. `https://<user>.sshclaude.com`) to access Claude securely in your browser.
+4. Optional commands:
+   * `sshclaude status` – check the tunnel and Access app health
+   * `sshclaude refresh-token` – rotate the Cloudflare tunnel token
+   * `sshclaude uninstall` – remove all Cloudflare resources and local files
+
+When `sshclaude init` runs it will:
+
+1. Install `cloudflared` and `ttyd` if missing
+2. Verify your GitHub identity via the provisioning API
+3. Create or reuse the Cloudflare tunnel and Access policy
+4. Write a launcher script and LaunchAgent plist
+5. Start the tunnel and print the public URL
+
+---
+
+## 5. Protections in the Backend
+
+The `sshclaude.com` provisioning service performs several safety checks before issuing a tunnel token:
+
+| Task                        | Description |
+| --------------------------- | ----------- |
+| **Tunnel provisioning**     | Use Cloudflare API to create a new tunnel (named or token-based). |
+| **DNS routing**             | Create CNAME: `<user>.sshclaude.dev` → `tunnel-id.cfargotunnel.com`. |
+| **Access app creation**     | Define a Cloudflare Access application for each tunnel. |
+| **Policy enforcement**      | Include only allowed GitHub logins or IPs and enforce MFA. |
+| **Token issuance**          | Return connector `*.json` token to the CLI for `cloudflared --token` usage. |
+| **Audit tracking**          | Log login attempts, success, session durations, and activity metadata. |
+| **Token revocation API**    | Invalidate credentials and remove public hostnames if revoked or uninstalled. |
+| **Expiration enforcement**  | Optionally expire tunnels on a TTL (for example, 24 hours unless refreshed). |
+| **Multi-tenant separation** | Isolate per-user tunnels, Access apps, and DNS mappings. |
+
+---
+
+## 6. Why Is This Secure?
+
+| Area         | Secured How |
+| ------------ | ----------- |
+| Shell access | ❌ Not exposed; Claude CLI only. |
+| Tunnel auth  | 🔐 Token-based; no need for cert.pem or SSH keys. |
+| Session TTL  | ⏱️ Short-lived sessions (e.g., 15 min) enforced by Access. |
+| User control | ✅ User runs `ttyd` and Claude locally; nothing runs as root. |
+
+---
+
+## Status
 
 * Claude running locally via ttyd
 * Tunnel live via `cloudflared --token`
