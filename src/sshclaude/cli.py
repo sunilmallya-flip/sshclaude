@@ -68,6 +68,7 @@ def _launchctl(action: str, plist: Path) -> None:
 
 def write_plist(token: str) -> None:
     PLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    cloudflared_path = shutil.which("cloudflared") or "/usr/local/bin/cloudflared"
     plist = f"""<?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
 <plist version='1.0'>
@@ -76,7 +77,7 @@ def write_plist(token: str) -> None:
     <string>com.sshclaude.tunnel</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/cloudflared</string>
+        <string>{cloudflared_path}</string>
         <string>tunnel</string>
         <string>run</string>
         <string>--token</string>
@@ -234,6 +235,13 @@ def init(github: str, domain: str | None, session: str):
     write_launcher()
     write_plist(config["tunnel_token"])
     console.print("[green]Initialization complete!")
+    console.print()
+    console.print(f"[bold green]Tunnel is now live at:[/] https://{subdomain}")
+    console.print(f"[bold yellow]To connect:[/]")
+    console.print(f"  [blue]ssh root@{subdomain}[/]")
+    console.print()
+    console.print("[dim]This command will launch Claude in your terminal via ttyd + SSH tunnel.[/]")
+    console.print("[dim]If this is your first time, visit the URL above in a browser and login with GitHub to activate Access.[/]")
 
 
 @cli.command()
@@ -252,6 +260,36 @@ def status():
             console.print("[red]Provision not found on server.")
     except Exception as e:
         console.print(f"[red]Failed to query status: {e}")
+
+
+@cli.command()
+def stop():
+    """Stop the sshclaude tunnel session (cloudflared + ttyd)."""
+    console.print("[bold]Stopping sshclaude tunnel session...")
+
+    if PLIST_FILE.exists():
+        _launchctl("bootout", PLIST_FILE)
+        console.print("[green]Stopped cloudflared tunnel.")
+    else:
+        console.print("[yellow]No active cloudflared session found.")
+
+    # Kill any stray ttyd processes (only ones that launched claude)
+    try:
+        result = subprocess.run(
+            ["pgrep", "-fl", "ttyd"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        for line in result.stdout.strip().split("\n"):
+            if "ttyd" in line and "claude" in line:
+                pid = int(line.split()[0])
+                os.kill(pid, 9)
+                console.print(f"[green]Killed ttyd process (PID {pid})")
+    except Exception as e:
+        console.print(f"[red]Failed to kill ttyd: {e}")
+
+    console.print("[bold green]Tunnel session fully stopped.")
 
 
 @cli.command()
