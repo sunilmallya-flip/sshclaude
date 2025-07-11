@@ -134,9 +134,22 @@ def read_config() -> dict:
     return {}
 
 
+def is_tunnel_running() -> bool:
+    plist_label = "com.sshclaude.tunnel"
+    result = subprocess.run(["launchctl", "list"], capture_output=True, text=True)
+    return plist_label in result.stdout
+
+
+def is_ttyd_running() -> bool:
+    result = subprocess.run(["pgrep", "-f", "ttyd.*token_guard.sh"], capture_output=True, text=True)
+    return result.returncode == 0
+
+
+
 @click.group()
 def cli():
     """sshclaude command line interface."""
+
 
 
 @cli.command()
@@ -161,6 +174,20 @@ def init(github: str, domain: str | None, session: str, token: str | None):
         write_tunnel_files(subdomain, tunnel_token)
         write_launcher(session_token)
         write_plist(tunnel_token)
+        # Check if ttyd is already running
+        if is_ttyd_running():
+            console.print("[yellow]ttyd already running — reusing existing terminal.")
+        else:
+            ttyd_proc = subprocess.Popen(["ttyd", "--port", "7681", str(CONFIG_FILE.parent / "token_guard.sh")])
+            console.print(f"[dim]Started ttyd (PID {ttyd_proc.pid})[/]")
+
+        # Restart tunnel if already active
+        if is_tunnel_running():
+            console.print("[yellow]Tunnel already running — restarting to apply config...")
+            _launchctl("bootout", PLIST_FILE)
+
+        _launchctl("bootstrap", PLIST_FILE)
+
         console.print(f"[green]sshclaude started at https://{subdomain}")
         return
 
@@ -268,6 +295,7 @@ def init(github: str, domain: str | None, session: str, token: str | None):
     write_tunnel_files(subdomain, tunnel_token)
     write_launcher(session_token)
     write_plist(tunnel_token)
+
     console.print(f"[green]Initialization complete! Visit: https://{subdomain}")
 
 
