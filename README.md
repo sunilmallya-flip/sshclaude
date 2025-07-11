@@ -31,7 +31,7 @@ From a user's point of view, everything flows through Cloudflare before touching
 Browser (User)
    │
    ▼ HTTPS
-Cloudflare Access (SSO + MFA + IP check)
+Cloudflare Access (SSO + MFA)
    │
    ▼ TLS + mTLS
 Cloudflare Tunnel (cloudflared with token)
@@ -153,11 +153,3 @@ The `sshclaude.com` provisioning service performs several safety checks before i
 The provisioning API only issues Cloudflare tokens. It cannot start `ttyd` or read your local token file, so the service itself cannot hijack or view your session. You may stop the LaunchAgent at any time using `sshclaude stop`.
 
 ---
-
-## Status
-
-* Claude running locally via ttyd
-* Tunnel live via `cloudflared --token`
-* Access gated and no shell exposure
-
-You're ready to give this to users or build out the CLI to automate it.
