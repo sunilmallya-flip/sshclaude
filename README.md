@@ -52,7 +52,8 @@ sequenceDiagram
     participant CFAPI as Cloudflare API
     participant Launchd as cloudflared
     participant Edge as Cloudflare Edge
-    participant TTYD as ttyd / Claude
+    participant TTYD as ttyd
+    participant Guard as token_guard.sh
     participant Browser as BrowserUser
 
     CLI->>API: POST /login
@@ -78,6 +79,8 @@ sequenceDiagram
     Browser->>Edge: https://<subdomain>.sshclaude.dev
     Edge->>GH: login if needed
     Edge->>TTYD: http://localhost:7681
+    TTYD->>Guard: prompt token
+    Guard-->>TTYD: launch claude
     TTYD-->>Browser: Claude terminal
 ```
 
