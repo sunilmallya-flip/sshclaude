@@ -58,7 +58,12 @@ def _launchctl(action: str, plist: Path) -> None:
     if not shutil.which("launchctl"):
         return
     domain = f"gui/{os.getuid()}"
-    subprocess.run(["launchctl", action, domain, str(plist)], check=False)
+    subprocess.run(
+        ["launchctl", action, domain, str(plist)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def write_plist(token: str) -> None:
@@ -83,6 +88,7 @@ def write_plist(token: str) -> None:
 </plist>
 """
     PLIST_FILE.write_text(plist)
+    _launchctl("bootout", PLIST_FILE)
     _launchctl("bootstrap", PLIST_FILE)
 
 
