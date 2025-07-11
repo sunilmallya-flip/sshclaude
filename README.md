@@ -99,6 +99,10 @@ sequenceDiagram
    * `sshclaude stop` – stop the running tunnel and ttyd session without deleting anything 
   * `sshclaude uninstall` – remove all Cloudflare resources and local files (requires your tunnel token)
 
+```
+sshclaude init --github sunilmallya --domain vibecode.sshclaude.dev --token mypassphrase
+```
+
 When `sshclaude init` runs it will:
 
 1. Install `cloudflared` and `ttyd` if missing
