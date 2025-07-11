@@ -53,6 +53,14 @@ def write_tunnel_files(subdomain: str, token: str) -> None:
     (cf_dir / "config.yml").write_text(config)
 
 
+def _launchctl(action: str, plist: Path) -> None:
+    """Run launchctl commands in the user domain if available."""
+    if not shutil.which("launchctl"):
+        return
+    domain = f"gui/{os.getuid()}"
+    subprocess.run(["launchctl", action, domain, str(plist)], check=False)
+
+
 def write_plist(token: str) -> None:
     PLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
     plist = f"""<?xml version='1.0' encoding='UTF-8'?>
@@ -75,7 +83,7 @@ def write_plist(token: str) -> None:
 </plist>
 """
     PLIST_FILE.write_text(plist)
-    subprocess.run(["launchctl", "load", str(PLIST_FILE)], check=False)
+    _launchctl("bootstrap", PLIST_FILE)
 
 
 def write_config(data: dict):
@@ -252,7 +260,7 @@ def uninstall():
             return
         progress.update(t, advance=2)
 
-    subprocess.run(["launchctl", "unload", str(PLIST_FILE)], check=False)
+    _launchctl("bootout", PLIST_FILE)
     PLIST_FILE.unlink(missing_ok=True)
     LAUNCHER_FILE.unlink(missing_ok=True)
     CONFIG_FILE.unlink(missing_ok=True)
@@ -287,9 +295,9 @@ def refresh_token():
     write_tunnel_files(subdomain, new_token)
 
     # Reload tunnel
-    subprocess.run(["launchctl", "unload", str(PLIST_FILE)], check=False)
+    _launchctl("bootout", PLIST_FILE)
     write_plist(new_token)
-    subprocess.run(["launchctl", "load", str(PLIST_FILE)], check=False)
+    _launchctl("bootstrap", PLIST_FILE)
 
     console.print("[green]Tunnel token refreshed successfully.")
 
