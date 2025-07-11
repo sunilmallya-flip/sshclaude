@@ -114,7 +114,7 @@ flowchart TD
 ## 4. How to Get Started
 
 1. `pip install sshclaude`
-2. Run `sshclaude init --github <your-login>` and follow the browser login to verify your GitHub account.
+2. Run `sshclaude init --github <your-login>` and follow the browser login to verify your GitHub account. You can pass extra options like `--domain <sub>` to choose a custom hostname, `--session 30m` to tweak the Cloudflare Access TTL or `--token <secret>` to supply your own unlock token.
 3. Visit the printed URL (e.g. `https://<user>.sshclaude.com`) to access Claude securely in your browser.
 4. Optional commands:
    * `sshclaude status` – check the tunnel and Access app health
@@ -129,6 +129,19 @@ When `sshclaude init` runs it will:
 3. Create or reuse the Cloudflare tunnel and Access policy
 4. Write a launcher script and LaunchAgent plist
 5. Start the tunnel and print the public URL
+
+### Configuration files
+The init command stores everything under `~/.sshclaude` and `~/.cloudflared`:
+
+| File | Purpose |
+| ---- | ------- |
+| `~/.sshclaude/config.yaml` | Saved tunnel and Access metadata |
+| `~/.sshclaude/session_token` | Token required by the browser to run Claude |
+| `~/.sshclaude/token_guard.sh` | Script that checks the token before launching Claude |
+| `~/.sshclaude/launch_claude.sh` | Wrapper script that starts `ttyd` with the guard |
+| `~/.cloudflared/token.json` | Cloudflare tunnel token used by `cloudflared` |
+| `~/.cloudflared/config.yml` | Ingress rules pointing to the local `ttyd` |
+| `~/Library/LaunchAgents/com.sshclaude.tunnel.plist` | macOS agent that runs `cloudflared` |
 
 ---
 
@@ -158,6 +171,9 @@ The `sshclaude.com` provisioning service performs several safety checks before i
 | Tunnel auth  | 🔐 Token-based; no need for cert.pem or SSH keys. |
 | Session TTL  | ⏱️ Short-lived sessions (e.g., 15 min) enforced by Access. |
 | User control | ✅ User runs `ttyd` and Claude locally; nothing runs as root. |
+| Local token guard | 🔒 The unlock token lives only on your machine and must be typed in the browser. |
+
+The provisioning API only issues Cloudflare tokens. It cannot start `ttyd` or read your local token file, so the service itself cannot hijack or view your session. You may stop the LaunchAgent at any time using `sshclaude stop`.
 
 ---
 
