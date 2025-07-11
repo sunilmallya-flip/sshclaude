@@ -116,7 +116,16 @@ def init(github: str, domain: str | None, session: str):
 
     config = read_config()
     if config:
-        console.print("[yellow]sshclaude already initialized.")
+        console.print("[yellow]Existing configuration found - reusing token.")
+        subdomain = config.get("domain")
+        token = config.get("tunnel_token")
+        if not subdomain or not token:
+            console.print("[red]Configuration incomplete. Remove ~/.sshclaude and re-run init.")
+            return
+        write_tunnel_files(subdomain, token)
+        write_launcher()
+        write_plist(token)
+        console.print(f"[green]sshclaude started at https://{subdomain}")
         return
 
     install_cloudflared()
